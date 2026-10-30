@@ -1,5 +1,7 @@
-# 云端（VPS）—— FamilyPrint-Cloud + Caddy 自动 HTTPS
-# 使用：修改下方 2 个「必改」值 + Caddyfile 域名，然后 docker compose -f docker-compose.cloud.yml up -d
+# 云端（VPS）—— FamilyPrint-Cloud 服务端
+# 使用：修改下方 2 个「必改」值，然后 docker compose -f docker-compose.cloud.yml up -d
+# 说明：本编排只提供服务端本体（HTTP :8000）；HTTPS 反向代理请使用你自己的方案
+#       （Nginx / 宝塔 / 1Panel / 云厂商负载均衡等均可），反代目标 127.0.0.1:8000
 services:
   cloud:
     image: ghcr.io/mohan9898/familyprint-cloud:latest   # GHCR 公共镜像，多架构 amd64/arm64/armv7 自动匹配
@@ -16,19 +18,7 @@ services:
     volumes:
       - cloud-data:/app/data
     ports:
-      - "127.0.0.1:8000:8000"   # 仅本机，由 Caddy 反代对外
-
-  caddy:
-    image: caddy:latest
-    container_name: fp-caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
+      - "8000:8000"   # 服务端 HTTP 端口，供外部反向代理回源使用
 
 volumes:
   cloud-data:
-  caddy-data:
