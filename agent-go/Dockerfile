@@ -1,5 +1,5 @@
 # Go Agent 极简镜像：scratch + 单二进制，镜像 ~8MB，运行内存 ~10MB
-FROM golang:1.21-alpine AS build
+FROM golang:1.22-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
