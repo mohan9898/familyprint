@@ -171,33 +171,13 @@ curl -s -m 3 http://192.168.1.100:631 >/dev/null && echo "打印机 631 端口�
 
 #### 方式 A · Docker Compose（推荐）
 
-软路由/NAS 需要先有 Docker（OpenWrt 一般在「系统→软件包」搜 `docker` 或 `dockerd` 安装；Debian/Ubuntu 用同一条 `get.docker.com` 脚本）：
+软路由/NAS 需要先有 Docker（OpenWrt 一般在「系统→软件包」搜 `docker` 或 `dockerd` 安装；Debian/Ubuntu 用同一条 `get.docker.com` 脚本）。
+
+变量**已直接写在 `docker-compose.agent.yml` 里**——编辑该文件改好 3 个必改值（域名、token、打印机 IPP 地址，均有 `必改` 注释标注），然后：
 
 ```bash
-DEVICE_TOKEN=与云端一致 \
-PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print \
 docker compose -f docker-compose.agent.yml up -d
-
 docker logs -f fp-agent   # 应看到 "已连接云端 wss://print.example.com/ws/agent"
-```
-
-免编译用 GHCR 镜像：编辑 `docker-compose.agent.yml`，**注释掉 `build: ./agent-go`，取消注释 `image:` 行**（此方式软路由上无需 Go 环境，只需这一个 compose 文件）：
-
-```yaml
-  agent:
-    image: ghcr.io/mohan9898/familyprint-agent:latest   # ← 启用这行
-    # build: ./agent-go                                  # ← 注释这行
-```
-
-变量也可以写在 compose 文件同目录的 `.env` 文件里（推荐，重启不丢）：
-
-```bash
-cat > .env <<'EOF'
-DEVICE_TOKEN=与云端一致
-PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print
-# PRINT_KEY=你的家庭密钥    ← 开启端到端加密（可选）
-EOF
-docker compose -f docker-compose.agent.yml up -d
 ```
 
 #### 方式 B · 二进制（不用 Docker，内存最省）
@@ -289,6 +269,7 @@ chmod +x /etc/init.d/fp-agent && /etc/init.d/fp-agent enable && /etc/init.d/fp-a
 services:
   cloud:
     image: ghcr.io/mohan9898/familyprint-cloud:latest   # 多架构：amd64/arm64/armv7 自动匹配
+    # build: ./cloud-go                                  # 想本地构建则注释上一行、启用这一行
     container_name: fp-cloud
     restart: unless-stopped
     environment:
@@ -327,32 +308,35 @@ print.example.com {
 
 启动：`docker compose -f docker-compose.cloud.yml up -d`
 
-**家庭端 · docker-compose.agent.yml**（软路由上保存，或直接用命令行变量）：
+**家庭端 · docker-compose.agent.yml**（软路由上保存，变量已直接写入文件）：
 
 ```yaml
 # 家庭端（软路由/NAS）—— Go Agent，IPP 直连打印机，无 CUPS
-# 内存占用 ~10MB；host 网络模式以直接访问家庭网段内的打印机
 services:
   agent:
     image: ghcr.io/mohan9898/familyprint-agent:latest   # 多架构：amd64/arm64/armv7 自动匹配
+    # build: ./agent-go                                  # 想本地构建则注释上一行、启用这一行
     container_name: fp-agent
     restart: unless-stopped
-    network_mode: host
+    network_mode: host          # 直接访问家庭网段内的打印机
     environment:
-      - CLOUD_URLS=wss://print.example.com/ws/agent              # ← 改成你的域名
-      - DEVICE_TOKEN=改成设备token_与云端一致                      # ← 改成与云端一致
-      - PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print        # ← 改成打印机 IPP 地址
-      - PRINTER_NAME=家里打印机
+      # ↓↓↓ 必改：云端域名（与云端 Caddyfile 一致）
+      - CLOUD_URLS=wss://print.example.com/ws/agent
+      # ↓↓↓ 必改：设备 token（与云端 compose 文件中一致）
+      - DEVICE_TOKEN=请设置设备token_与云端一致
+      # ↓↓↓ 必改：打印机 IPP 地址（打印机面板查看 IP）
+      - PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print
+      - PRINTER_NAME=家里打印机                # 可改：打印机显示名
       - MOCK=0
-      - PRINT_KEY=                        # 端到端加密家庭密钥（可选）：填上后浏览器首次打印时输入同一密钥
+      # 可选：端到端加密家庭密钥——填上后浏览器首次打印时输入同一密钥，云端只见密文
+      - PRINT_KEY=
 ```
 
-启动（变量也可以写进同目录 `.env` 文件后直接 `docker compose up -d`）：
+启动（改好文件内 3 个「必改」值后，无需任何命令行变量）：
 
 ```bash
-DEVICE_TOKEN=与云端一致 \
-PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print \
 docker compose -f docker-compose.agent.yml up -d
+docker logs -f fp-agent   # 应看到 "已连接云端 wss://print.example.com/ws/agent"
 ```
 
 > 本地构建镜像（不用 GHCR）：把 `image:` 行换回 `build: ./cloud-go` / `build: ./agent-go` 即可。
