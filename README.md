@@ -73,11 +73,24 @@ openssl rand -hex 32   # SECRET_KEY 会话密钥（仅云端）
 
 ### 第 2 步 · 云端部署（VPS）
 
-```bash
-# 安装 Docker（已装跳过）
-curl -fsSL https://get.docker.com | sh && systemctl enable --now docker
+#### 2.1 安装 Docker 与 Docker Compose（已装跳过）
 
-# 上传项目并进入
+现在的 Docker 自带 Compose 插件（命令为 `docker compose`，无横线），一条脚本装齐：
+
+```bash
+curl -fsSL https://get.docker.com | sh     # 一键装 Docker Engine + Compose 插件
+systemctl enable --now docker
+
+# 验证：两条都出版本号即装好
+docker --version
+docker compose version
+```
+
+> 老系统若只有 `docker-compose`（带横线的独立 v1 版）也能用，把后文命令里的 `docker compose` 换成 `docker-compose` 即可。
+
+#### 2.2 上传项目并启动
+
+```bash
 scp -r familyprint/ root@VPS_IP:/opt/familyprint
 ssh root@VPS_IP && cd /opt/familyprint
 ```
@@ -98,24 +111,49 @@ docker logs fp-caddy   # 应看到证书签发成功（1-2 分钟）
 打开 `https://print.example.com`，用默认管理员 `admin / admin123` 登录，**立即改密码**。
 
 <details>
-<summary>📦 免编译方式：直接用 GHCR 镜像（推荐）</summary>
+<summary>📦 免编译方式：直接用 GHCR 镜像（推荐，VPS 上不装 Go 也能跑）</summary>
+
+编辑 `docker-compose.cloud.yml`：**注释掉 `build: ./cloud-go`，取消注释 `image:` 行**：
 
 ```yaml
-# docker-compose.cloud.yml 中取消注释并改为你的用户名
-image: ghcr.io/mohan9898/familyprint-cloud:latest
+  cloud:
+    image: ghcr.io/mohan9898/familyprint-cloud:latest   # ← 启用这行
+    # build: ./cloud-go                                  # ← 注释这行
 ```
-镜像多架构（amd64/arm64/armv7），会自动匹配。
+
+之后 `docker compose up -d` 自动拉取对应架构镜像（amd64/arm64/armv7）。此方式 VPS 上**无需 Go 环境，甚至无需上传源码**——只需 `docker-compose.cloud.yml` 和 `Caddyfile` 两个文件。
 
 </details>
 
 <details>
-<summary>📦 二进制方式运行云端</summary>
+<summary>📦 二进制方式运行云端（不用 Docker）</summary>
 
 ```bash
-# 从 Release 下载对应平台二进制，或本地编译
-cd cloud-go && go build -o fp-cloud .
-./fp-cloud   # 需先设置环境变量，并用 nginx/caddy 反代 HTTPS
+# 1. 下载二进制（按 CPU 架构选择，一般 VPS 是 amd64；其他：arm64 / arm / darwin-* / windows）
+wget https://github.com/mohan9898/familyprint/releases/latest/download/fp-cloud-linux-amd64 -O /usr/local/bin/fp-cloud
+chmod +x /usr/local/bin/fp-cloud
+
+# 2. systemd 常驻
+cat > /etc/systemd/system/fp-cloud.service <<'EOF'
+[Unit]
+Description=FamilyPrint Cloud
+After=network-online.target
+[Service]
+Environment=SECRET_KEY=改成随机长字符串
+Environment=DEVICE_TOKEN=改成设备token
+Environment=DATA_DIR=/var/lib/familyprint
+Environment=LISTEN=:8000
+ExecStart=/usr/local/bin/fp-cloud
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload && systemctl enable --now fp-cloud
+journalctl -u fp-cloud -f   # 应看到 "监听 :8000"
 ```
+
+HTTPS 交给 Caddy：`apt install caddy`，在 `Caddyfile` 写 `print.example.com { reverse_proxy 127.0.0.1:8000 }` 即自动签证书。
 
 </details>
 
@@ -131,7 +169,9 @@ curl -s -m 3 http://192.168.1.100:631 >/dev/null && echo "打印机 631 端口�
 
 ### 第 4 步 · 家庭端 Agent（二选一）
 
-#### 方式 A · Docker（推荐）
+#### 方式 A · Docker Compose（推荐）
+
+软路由/NAS 需要先有 Docker（OpenWrt 一般在「系统→软件包」搜 `docker` 或 `dockerd` 安装；Debian/Ubuntu 用同一条 `get.docker.com` 脚本）：
 
 ```bash
 DEVICE_TOKEN=与云端一致 \
@@ -141,14 +181,41 @@ docker compose -f docker-compose.agent.yml up -d
 docker logs -f fp-agent   # 应看到 "已连接云端 wss://print.example.com/ws/agent"
 ```
 
-GHCR 镜像同理：`image: ghcr.io/mohan9898/familyprint-agent:latest`
+免编译用 GHCR 镜像：编辑 `docker-compose.agent.yml`，**注释掉 `build: ./agent-go`，取消注释 `image:` 行**（此方式软路由上无需 Go 环境，只需这一个 compose 文件）：
 
-#### 方式 B · 裸二进制（内存极度紧张时）
+```yaml
+  agent:
+    image: ghcr.io/mohan9898/familyprint-agent:latest   # ← 启用这行
+    # build: ./agent-go                                  # ← 注释这行
+```
+
+变量也可以写在 compose 文件同目录的 `.env` 文件里（推荐，重启不丢）：
 
 ```bash
-# 任意有 Go 的机器编译（或直接用 Release 现成二进制）
-cd agent-go && GOOS=linux GOARCH=arm64 go build -o fp-agent .
-scp fp-agent root@软路由IP:/usr/local/bin/ && chmod +x /usr/local/bin/fp-agent
+cat > .env <<'EOF'
+DEVICE_TOKEN=与云端一致
+PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print
+# PRINT_KEY=你的家庭密钥    ← 开启端到端加密（可选）
+EOF
+docker compose -f docker-compose.agent.yml up -d
+```
+
+#### 方式 B · 二进制（不用 Docker，内存最省）
+
+直接从 [Releases 页](https://github.com/mohan9898/familyprint/releases) 下载对应平台文件，无需 Go 环境：
+
+| 设备 | 下载文件 |
+|------|----------|
+| x86 软路由 / NAS / 旧电脑 | `fp-agent-linux-amd64` |
+| 树莓派 4/5、ARM 盒子（N1/R2S/R4S） | `fp-agent-linux-arm64` |
+| 树莓派 3、32 位 ARM | `fp-agent-linux-arm` |
+| Mac | `fp-agent-darwin-amd64` / `fp-agent-darwin-arm64` |
+| Windows | `fp-agent-windows-amd64.exe` |
+
+```bash
+# 示例：ARM64 软路由
+wget https://github.com/mohan9898/familyprint/releases/latest/download/fp-agent-linux-arm64 -O /usr/local/bin/fp-agent
+chmod +x /usr/local/bin/fp-agent
 ```
 
 **systemd 常驻**（标准 Linux / NAS）：
