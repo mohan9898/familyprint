@@ -130,8 +130,10 @@ cat > /etc/systemd/system/fp-cloud.service <<'EOF'
 Description=FamilyPrint Cloud
 After=network-online.target
 [Service]
-Environment=SECRET_KEY=改成随机长字符串
-Environment=DEVICE_TOKEN=改成设备token
+# ↓↓↓ 必改：会话密钥（openssl rand -hex 32 生成）
+Environment=SECRET_KEY=请改成一段随机长字符串
+# ↓↓↓ 必改：设备 token（与家庭端一致）
+Environment=DEVICE_TOKEN=请设置设备token_与家庭端一致
 Environment=DATA_DIR=/var/lib/familyprint
 Environment=LISTEN=127.0.0.1:8000
 ExecStart=/usr/local/bin/fp-cloud
@@ -189,7 +191,7 @@ wget https://github.com/mohan9898/familyprint/releases/latest/download/fp-agent-
 chmod +x /usr/local/bin/fp-agent
 ```
 
-**systemd 常驻**（标准 Linux / NAS）：
+**systemd 常驻**（标准 Linux / NAS）——变量已直接写入，改好 3 个「必改」值即可：
 
 ```ini
 # /etc/systemd/system/fp-agent.service
@@ -197,10 +199,14 @@ chmod +x /usr/local/bin/fp-agent
 Description=FamilyPrint Agent
 After=network-online.target
 [Service]
+# ↓↓↓ 必改：云端域名（与你部署的服务端域名一致）
 Environment=CLOUD_URLS=wss://print.example.com/ws/agent
-Environment=DEVICE_TOKEN=与云端一致
+# ↓↓↓ 必改：设备 token（与云端一致）
+Environment=DEVICE_TOKEN=请设置设备token_与云端一致
+# ↓↓↓ 必改：打印机 IPP 地址（打印机面板查看 IP）
 Environment=PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print
-# PRINT_KEY=你的家庭密钥   ← 开启端到端加密（见下文）
+# 可选：端到端加密家庭密钥——填上后浏览器首次打印时输入同一密钥，云端只见密文
+# Environment=PRINT_KEY=你的家庭密钥
 ExecStart=/usr/local/bin/fp-agent
 Restart=always
 RestartSec=5
@@ -213,7 +219,7 @@ systemctl daemon-reload && systemctl enable --now fp-agent
 journalctl -u fp-agent -f   # 应看到 "已连接云端"
 ```
 
-**OpenWrt（procd）**：
+**OpenWrt（procd）**——同样改好 3 个「必改」值后直接使用：
 
 ```bash
 cat > /etc/init.d/fp-agent <<'EOF'
@@ -223,8 +229,11 @@ USE_PROCD=1
 start_service() {
     procd_open_instance
     procd_set_param command /usr/local/bin/fp-agent
+    # ↓↓↓ 必改：云端域名
     procd_set_param env CLOUD_URLS=wss://print.example.com/ws/agent
-    procd_set_param env DEVICE_TOKEN=与云端一致
+    # ↓↓↓ 必改：设备 token（与云端一致）
+    procd_set_param env DEVICE_TOKEN=请设置设备token_与云端一致
+    # ↓↓↓ 必改：打印机 IPP 地址
     procd_set_param env PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print
     procd_set_param respawn
     procd_close_instance
