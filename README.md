@@ -2,7 +2,7 @@
 
 # FamilyPrint「家印」
 
-**全家共用的远程打印服务 · 网页即开即用 · 老人零学习成本**
+**全家人共用的远程打印服务 · 微信里打开网址就能打印 · 老人零学习成本**
 
 [![License](https://img.shields.io/badge/License-PolyForm_NC_1.0.0-orange)](./LICENSE)
 [![Release](https://img.shields.io/github/v/release/mohan9898/familyprint)](https://github.com/mohan9898/familyprint/releases)
@@ -10,143 +10,297 @@
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![Built by AI](https://img.shields.io/badge/Built_by-100%25_AI-8A2BE2)](#-纯-ai-编写声明)
 
-家人在微信/浏览器里打开网址 → 选文件 → 点打印 → 回家取件。
-**零端口映射、零公网 IP、零 DDNS**，云端全密文中转，单二进制部署。
-
 </div>
 
 ---
 
-## ✨ 特性
+## 一、这是个什么项目？
 
-| | |
-|---|---|
-| 🧓 **老人友好** | 大按钮大字号全中文，登录一次 30 天免密，微信内直开 |
-| 🔒 **端到端加密** | 浏览器内 AES-256-GCM 加密，云端全程不可读文件内容 |
-| 🛡️ **零暴露面** | 家庭端纯出站 WSS 连接，路由器不开任何入站端口 |
-| 📦 **极轻量** | 全栈 Go 单二进制：云端 ~15MB、家庭端 ~8MB 内存 |
-| 🖨️ **IPP 直连** | 无需 CUPS，Agent 直连网络打印机 |
-| 💾 **易迁移易备份** | 数据 <1MB，backup/restore 脚本一键完成，换 VPS 不动家庭端 |
-| ⚙️ **全平台** | linux(amd64/arm64/armv7) / macOS / Windows，Docker 与二进制双支持 |
-
-## 🏗️ 架构
+**一句话**：在外用手机给家里的打印机发打印任务，家人回家取纸。
 
 ```
-家人浏览器（微信内也可直开）
-   │  HTTPS（自动证书）
-   ▼
-云端 VPS：fp-cloud（Go 单二进制，HTTPS 由你的反代提供）
-   │  账号 · 任务队列 · 文件中转（可 E2EE 密文）
-   ▲  WSS 出站长连接（家庭端主动连云端）
-家庭软路由 / NAS / 树莓派：fp-agent（Go 单二进制）
-   │  IPP 直连
-   ▼
-打印机
+📱 家人手机（微信/浏览器打开网址，选文件点打印）
+        ↓ 加密上传
+☁️ 云端服务器（你的 VPS，负责保管账号、排队任务、中转文件）
+        ↓ 自动加密通道（家庭端主动连出，路由器不用开放任何端口）
+🏠 家里的软路由/NAS（fp-agent 小程序，负责把任务送到打印机）
+        ↓
+🖨️ 打印机出纸
 ```
 
-> 对标 cups-yun-agent 的「本地 Agent + 云端中继」架构，入口统一为网页/H5。家庭端主动出站连接云端，因此**换 VPS 只需改域名 DNS，家人端和软路由完全不用动**。
+**家里老人怎么用**：打开网址 → 选文件 → 点「开始打印」→ 回家取。完事。登录一次 30 天免输密码。
 
-## 📋 部署前准备
+**你需要一次性搭建**（全程约 30 分钟）：
 
-| 需要 | 说明 |
-|------|------|
-| 备案域名 | 如 `print.example.com` |
-| 公网 VPS | 1核512MB 即可 |
-| 家庭常开设备 | 软路由 / NAS / 树莓派 / 旧电脑，能联网 |
-| 网络打印机 | 已接入家庭局域网并固定 IP |
+| 位置 | 装什么 | 干什么的 |
+|------|--------|----------|
+| 云端 VPS | fp-cloud 服务端 | 收任务、管账号（网页入口） |
+| 家里常开设备 | fp-agent 客户端 | 收任务、送打印机 |
 
-先生成两个随机值（后面反复用到）：
-
-```bash
-openssl rand -hex 32   # DEVICE_TOKEN 设备令牌（云端与家庭端一致）
-openssl rand -hex 32   # SECRET_KEY 会话密钥（仅云端）
-```
+> 📌 **新手请全程使用「Docker Compose」方式**（本教程主线），不用装 Go、不用下载代码，复制粘贴即可。二进制等高级方式见文末附录。
 
 ---
 
-## 🚀 部署教程（约 30 分钟，从零到出纸）
+## 二、开始前的准备（10 分钟）
 
-### 第 1 步 · 域名解析
+### ✅ 你需要有的东西
 
-1. 域名控制台添加 A 记录：`print` → VPS 公网 IP
-2. 该记录 **TTL 调为 300 秒**（日后换 VPS 生效快）
+| 序号 | 需要 | 检查方法 | 没有怎么办 |
+|:---:|------|----------|-----------|
+| ① | 一个**备案域名**（如 `print.example.com`） | 能登录域名管理后台 | 去阿里云/腾讯云买一个并备案 |
+| ② | 一台**公网 VPS**（1核512M 足够） | SSH 能连上（教程会教） | 任意云厂商轻量服务器 |
+| ③ | 一台**家里常开的设备**（软路由/NAS/树莓派/旧电脑） | 能开机、能上网 | — |
+| ④ | 一台**网络打印机**（WiFi/网线接入家里局域网） | 打印机屏幕里能查到 IP（如 `192.168.1.100`） | USB 打印机暂不支持 |
 
-### 第 2 步 · 云端部署（VPS）
+### ✅ 生成两个「密码」（后面反复用到）
 
-#### 2.1 安装 Docker 与 Docker Compose（已装跳过）
-
-现在的 Docker 自带 Compose 插件（命令为 `docker compose`，无横线），一条脚本装齐：
+SSH 登录 VPS 后执行（生成两串随机字符，**复制保存到记事本**）：
 
 ```bash
-curl -fsSL https://get.docker.com | sh     # 一键装 Docker Engine + Compose 插件
+# 第 1 串：设备令牌 TOKEN（云端和家庭端要用同一个）
+openssl rand -hex 32
+
+# 第 2 串：会话密钥 SECRET（仅云端用，再执行一次即可）
+openssl rand -hex 32
+```
+
+> 💡 **记住这 4 个值**，后面每一处「必改」都指它们：
+> ① 域名 ② VPS 的 IP ③ TOKEN（两串随机字符之一）④ SECRET（另一串）
+
+---
+
+## 三、云端部署（VPS 上，约 15 分钟）
+
+### 第 1 步：装 Docker（已装跳过）
+
+SSH 登录 VPS（Windows 可用 PowerShell 的 `ssh root@你的VPS_IP`），执行：
+
+```bash
+curl -fsSL https://get.docker.com | sh
 systemctl enable --now docker
 
-# 验证：两条都出版本号即装好
+# 验证：两条命令都能显示版本号 = 装好了
 docker --version
 docker compose version
 ```
 
-> 老系统若只有 `docker-compose`（带横线的独立 v1 版）也能用，把后文命令里的 `docker compose` 换成 `docker-compose` 即可。
-
-#### 2.2 上传项目并启动
+### 第 2 步：创建两个文件
 
 ```bash
-scp -r familyprint/ root@VPS_IP:/opt/familyprint
-ssh root@VPS_IP && cd /opt/familyprint
+mkdir -p /opt/familyprint && cd /opt/familyprint
 ```
 
-编辑 `docker-compose.cloud.yml`，填入 `SECRET_KEY`、`DEVICE_TOKEN` 后启动：
+**文件 1**：执行下面整段命令，自动创建 `docker-compose.cloud.yml`（创建后把 2 个「必改」值改掉）：
+
+```bash
+cat > docker-compose.cloud.yml <<'EOF'
+services:
+  cloud:
+    image: ghcr.io/mohan9898/familyprint-cloud:latest
+    container_name: fp-cloud
+    restart: unless-stopped
+    environment:
+      - SECRET_KEY=把这里改成第2串随机字符        # ← 必改
+      - DEVICE_TOKEN=把这里改成第1串随机字符      # ← 必改（和家庭端一致）
+      - DATA_DIR=/app/data
+      - LISTEN=:8000
+    volumes:
+      - cloud-data:/app/data
+    ports:
+      - "8000:8000"
+
+volumes:
+  cloud-data:
+EOF
+```
+
+改文件用编辑器：`nano docker-compose.cloud.yml`（改完按 `Ctrl+O` 保存、`Ctrl+X` 退出）。
+
+**文件 2**：在你自己的 HTTPS 反代里，把域名 `print.example.com` 回源到 `VPS_IP:8000`（宝塔/Nginx/1Panel/云负载均衡均可，按你平时的习惯配置即可）。
+
+### 第 3 步：启动并验证
 
 ```bash
 docker compose -f docker-compose.cloud.yml up -d
 
-# 验证
-docker logs fp-cloud   # 应看到 "FamilyPrint-Cloud (Go) 监听 :8000"
-curl -s http://127.0.0.1:8000/api/agent-status   # 有响应即服务端正常
+# 验证：看到 "监听 :8000" 就是成功
+docker logs fp-cloud
 ```
 
-服务端本体监听 HTTP `:8000`，**对外 HTTPS 反代请使用你自己的方案**（配置好后通过域名访问即可）。打开 `https://print.example.com`，用默认管理员 `admin / admin123` 登录，**立即改密码**。
+**✅ 检查点 1**：浏览器打开 `https://print.example.com` 能看到登录页 → 登录默认账号 `admin / admin123` → **立即改密码**！
 
-<details>
-<summary>📦 免编译方式：直接用 GHCR 镜像（默认已启用，VPS 上不装 Go 也能跑）</summary>
+---
 
-`docker-compose.cloud.yml` 默认使用 GHCR 公共镜像，`docker compose up -d` 自动拉取对应架构镜像（amd64/arm64/armv7）。此方式 VPS 上**无需 Go 环境，甚至无需上传源码**——只需 `docker-compose.cloud.yml` 一个文件。
+## 四、家庭端部署（家里设备上，约 10 分钟）
 
-想本地构建：注释 `image:` 行、启用 `build: ./cloud-go` 行即可。
+### 第 1 步：找到打印机的 IPP 地址
 
-</details>
+1. 打印机屏幕：设置 → 网络设置 → 查看 IP（如 `192.168.1.100`）
+2. 到路由器管理页，给这个 IP 绑定**静态分配**（防止 IP 变动）
+3. IPP 地址 = `ipp://192.168.1.100:631/ipp/print`（把 IP 换成你的；个别品牌路径不同，试不通看[故障排查](#九故障排查)）
 
-<details>
-<summary>📦 二进制方式运行云端（不用 Docker）</summary>
+### 第 2 步：安装并启动 fp-agent（二选一）
 
-**下载二进制**（按 CPU 架构选择，一般 VPS 是 amd64）：
+#### 方式 A：Docker（软路由/NAS 有 Docker 就用这个）
+
+家里设备上执行，创建 `docker-compose.agent.yml`：
 
 ```bash
+cat > docker-compose.agent.yml <<'EOF'
+services:
+  agent:
+    image: ghcr.io/mohan9898/familyprint-agent:latest
+    container_name: fp-agent
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - CLOUD_URLS=wss://print.example.com/ws/agent      # ← 必改：你的域名
+      - DEVICE_TOKEN=把这里改成第1串随机字符              # ← 必改（和云端一致）
+      - PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print # ← 必改：打印机地址
+      - PRINTER_NAME=家里打印机
+      - MOCK=0
+      - PRINT_KEY=                                        # 可选：端到端加密密钥
+EOF
+
+docker compose -f docker-compose.agent.yml up -d
+
+# 验证：看到 "已连接云端" 就是成功
+docker logs fp-agent
+```
+
+> OpenWrt 装 Docker：网页管理界面 → 系统 → 软件包 → 搜索 `dockerd` 安装。
+
+#### 方式 B：二进制（不用 Docker，一条命令直接跑，和 EasyTier 用法一样）
+
+```bash
+# 1. 下载（按设备选文件，对照表在附录 C）
+wget https://github.com/mohan9898/familyprint/releases/latest/download/fp-agent-linux-arm64 -O /usr/local/bin/fp-agent
+chmod +x /usr/local/bin/fp-agent
+
+# 2. 一条命令启动（改 3 个值）
+fp-agent -cloud wss://print.example.com/ws/agent -token 第1串随机字符 -printer ipp://192.168.1.100:631/ipp/print
+```
+
+想开机自启：用 systemd 或 OpenWrt procd，完整配置见[附录 D](#附录-d家庭端开机自启配置)。
+
+**✅ 检查点 2**：回到网页打印页，顶部打印机状态显示**在线**。
+
+---
+
+## 五、测试打印（5 分钟）
+
+手机**关掉 WiFi 用流量**（模拟在外场景），完成下面清单：
+
+- [ ] 打开 `https://print.example.com` → 登录
+- [ ] 传一个 PDF → 点「开始打印」→ **家里打印机出纸**
+- [ ] 改份数=2、开双面 → 出纸正确
+- [ ] 微信里打开同一个网址 → 有提示卡 → 也能正常上传打印
+
+## 六、交给家人（一次性设置，2 分钟）
+
+给家人发一条微信，内容照抄替换即可：
+
+> 咱家打印网址：https://print.example.com
+> 账号：xxx 密码：xxx（登录一次以后不用再输）
+> 用法：点「选择文件」→ 点「开始打印」→ 回家取
+
+帮老人做最后一步：手机浏览器打开网址 → 菜单 → **添加到主屏幕**。以后桌面图标一点即开，零辅导。
+
+🎉 **到这里部署全部完成！** 下面是进阶内容和日常维护，按需阅读。
+
+---
+
+## 七、进阶：端到端加密（推荐开启）
+
+打印文件在**浏览器内加密**后才上传，云端只见密文、**服务器管理员也读不到内容**，家庭端收到后用同一密钥解密再打印。
+
+开启只需两处填**同一个家庭密钥**（随便一段话，如 `我们家的小秘密2026`）：
+
+1. **家庭端**：Docker 方式填 `docker-compose.agent.yml` 里的 `PRINT_KEY=`；二进制方式启动命令末尾加 `-key 你的家庭密钥`
+2. **家人浏览器**：首次打印时弹窗输入同一密钥（记住一次即可）
+
+> 密钥不一致 → 任务提示「家庭密钥不匹配」直接失败，不会打出乱码。不填则走普通加密传输。
+
+### 其他内置安全机制（无需配置）
+
+| 层面 | 机制 |
+|------|------|
+| 传输 | 网页和任务全程 HTTPS/WSS 加密 |
+| 账号 | 密码加密存储；输错 5 次锁 10 分钟 |
+| 文件 | 打印完成立即删除（云端+家庭端双侧）；支持 PDF/JPG/PNG/DOCX/TXT，单个 ≤50MB，每人每天 30 个任务 |
+
+---
+
+## 八、日常维护
+
+### 备份（建议设置每天自动）
+
+```bash
+cd /opt/familyprint
+bash backup.sh                          # 手动备份，生成 <1MB 的压缩包
+bash restore.sh fp-backup-xxx.tar.gz    # 恢复
+```
+
+每天凌晨 3 点自动备份：
+
+```bash
+(crontab -l; echo "0 3 * * * cd /opt/familyprint && ./backup.sh >> backup.log 2>&1") | crontab -
+```
+
+### 换 VPS 迁移（家人完全无感）
+
+1. 旧 VPS：`bash backup.sh`，把备份文件下载到电脑
+2. 新 VPS：装 Docker → 创建同样的 `docker-compose.cloud.yml` → `bash restore.sh 备份文件`
+3. 域名管理后台：把 A 记录的 IP 改成新 VPS
+
+**家人手机和家里软路由什么都不用改**（都走域名）。
+
+### 常用命令速查
+
+| 想做什么 | Docker 方式 | 二进制方式 |
+|----------|------------|-----------|
+| 看云端日志 | `docker logs -f fp-cloud` | `journalctl -u fp-cloud -f` |
+| 看家庭端日志 | `docker logs -f fp-agent` | `journalctl -u fp-agent -f` |
+| 重启云端 | `docker compose -f docker-compose.cloud.yml restart` | `systemctl restart fp-cloud` |
+| 重启家庭端 | `docker compose -f docker-compose.agent.yml restart` | `systemctl restart fp-agent` |
+| 升级版本 | `docker compose ... pull && docker compose ... up -d` | 重新下载二进制覆盖后重启 |
+
+## 九、故障排查
+
+| 症状 | 最可能的原因 → 解决办法 |
+|------|------------------------|
+| 网页打不开 | DNS 未生效（等几分钟，`ping 域名` 核对 IP）；反代/证书没配好（检查反代配置和 80/443 端口） |
+| agent 连不上云端 | 两端 TOKEN 不一致（最常见！逐字核对）；域名写错；VPS 防火墙没放行 443 |
+| 任务一直「排队中」 | 家庭端离线（看 agent 日志）；或打印机没开机 |
+| 「失败：打印机连接失败」 | IPP 地址写错（先在家庭端 `curl -m 3 http://打印机IP:631` 测试）；打印机 IP 变了（绑静态 IP） |
+| 双面/彩色不生效 | 个别品牌 IPP 属性名不同，提 [issue](https://github.com/mohan9898/familyprint/issues) 附品牌型号 |
+| 「不支持的文件类型」 | 支持 PDF/JPG/PNG/DOCX/TXT；老 .doc 先转成 .docx 或 PDF |
+| 过段时间又要登录 | 正常（默认 30 天），重登一次即可 |
+
+---
+
+## 附录
+
+### 附录 A · 二进制运行云端（不用 Docker）
+
+```bash
+# 下载（amd64 为主流，其他架构见附录 C）
 wget https://github.com/mohan9898/familyprint/releases/latest/download/fp-cloud-linux-amd64 -O /usr/local/bin/fp-cloud
 chmod +x /usr/local/bin/fp-cloud
-```
 
-**启动**（与 EasyTier 一样的单命令风格，参数直接跟在命令后面）：
-
-```bash
-# 前台启动（快速测试）
+# 一条命令启动
 fp-cloud -secret 你的会话密钥 -token 你的设备token -data /var/lib/familyprint -listen 127.0.0.1:8000
-
-# 后台启动
-nohup fp-cloud -secret 你的会话密钥 -token 你的设备token -data /var/lib/familyprint -listen 127.0.0.1:8000 > /var/log/fp-cloud.log 2>&1 &
 ```
-
-全部参数（不传则回落到同名环境变量/默认值）：
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
 | `-secret` | 会话密钥（必改） | 环境变量 `SECRET_KEY` |
 | `-token` | 设备 token（必改，与家庭端一致） | 环境变量 `DEVICE_TOKEN` |
-| `-data` | 数据目录 | `data`（或 `DATA_DIR`） |
-| `-listen` | 监听地址 | `:8000`（或 `LISTEN`） |
-| `-session-days` | 登录会话有效天数 | `30` |
+| `-data` | 数据目录 | `data` |
+| `-listen` | 监听地址 | `:8000` |
+| `-session-days` | 会话有效天数 | `30` |
 
-**方式二 · systemd 常驻**（长期运行推荐）：
+### 附录 B · 云端开机自启（systemd）
 
 ```bash
 cat > /etc/systemd/system/fp-cloud.service <<'EOF'
@@ -164,98 +318,41 @@ systemctl daemon-reload && systemctl enable --now fp-cloud
 journalctl -u fp-cloud -f   # 应看到 "监听 :8000"
 ```
 
-之后在你的 HTTPS 反代中把域名回源到 `127.0.0.1:8000` 即可。
+### 附录 C · 全平台下载对照表
 
-</details>
+[Releases 页](https://github.com/mohan9898/familyprint/releases) 按设备选择：
 
-### 第 3 步 · 打印机 IPP 地址
+| 设备 | Agent 文件 | Cloud 文件 |
+|------|-----------|-----------|
+| x86 软路由 / NAS / VPS / 旧电脑 | `fp-agent-linux-amd64` | `fp-cloud-linux-amd64` |
+| 树莓派 4/5、ARM 盒子（N1/R2S/R4S） | `fp-agent-linux-arm64` | `fp-cloud-linux-arm64` |
+| 树莓派 3、32 位 ARM | `fp-agent-linux-arm` | `fp-cloud-linux-arm` |
+| Mac（Intel / Apple Silicon） | `fp-agent-darwin-*` | `fp-cloud-darwin-*` |
+| Windows | `fp-agent-windows-amd64.exe` | `fp-cloud-windows-amd64.exe` |
 
-1. 打印机面板查看 IP（如 `192.168.1.100`），**在路由器绑定静态 IP**
-2. IPP 地址通常为 `ipp://192.168.1.100:631/ipp/print`（HP 多为 `/ipp/print`，Epson/Canon/Brother 见说明书）
-3. 验证连通性：
+> USB 打印机暂不支持（需 CUPS 桥接），当前面向 IPP 网络打印机。
 
-```bash
-curl -s -m 3 http://192.168.1.100:631 >/dev/null && echo "打印机 631 端口可达"
-```
+### 附录 D · 家庭端开机自启配置
 
-### 第 4 步 · 家庭端 Agent（二选一）
-
-#### 方式 A · Docker Compose（推荐）
-
-软路由/NAS 需要先有 Docker（OpenWrt 一般在「系统→软件包」搜 `docker` 或 `dockerd` 安装；Debian/Ubuntu 用同一条 `get.docker.com` 脚本）。
-
-变量**已直接写在 `docker-compose.agent.yml` 里**——编辑该文件改好 3 个必改值（域名、token、打印机 IPP 地址，均有 `必改` 注释标注），然后：
+**标准 Linux / NAS（systemd）**：
 
 ```bash
-docker compose -f docker-compose.agent.yml up -d
-docker logs -f fp-agent   # 应看到 "已连接云端 wss://print.example.com/ws/agent"
-```
-
-#### 方式 B · 二进制（不用 Docker，内存最省）
-
-直接从 [Releases 页](https://github.com/mohan9898/familyprint/releases) 下载对应平台文件，无需 Go 环境：
-
-| 设备 | 下载文件 |
-|------|----------|
-| x86 软路由 / NAS / 旧电脑 | `fp-agent-linux-amd64` |
-| 树莓派 4/5、ARM 盒子（N1/R2S/R4S） | `fp-agent-linux-arm64` |
-| 树莓派 3、32 位 ARM | `fp-agent-linux-arm` |
-| Mac | `fp-agent-darwin-amd64` / `fp-agent-darwin-arm64` |
-| Windows | `fp-agent-windows-amd64.exe` |
-
-**下载二进制**（按设备架构选择，见上表）：
-
-```bash
-wget https://github.com/mohan9898/familyprint/releases/latest/download/fp-agent-linux-arm64 -O /usr/local/bin/fp-agent
-chmod +x /usr/local/bin/fp-agent
-```
-
-**启动**（与 EasyTier 一样的单命令风格）：
-
-```bash
-# 前台启动（快速测试）
-fp-agent -cloud wss://print.example.com/ws/agent -token 你的设备token -printer ipp://192.168.1.100:631/ipp/print
-
-# 开启端到端加密：加 -key 参数（与浏览器首次打印时输入的密钥一致）
-fp-agent -cloud wss://print.example.com/ws/agent -token 你的设备token -printer ipp://192.168.1.100:631/ipp/print -key 你的家庭密钥
-
-# 后台启动
-nohup fp-agent -cloud wss://print.example.com/ws/agent -token 你的设备token -printer ipp://192.168.1.100:631/ipp/print > /var/log/fp-agent.log 2>&1 &
-```
-
-全部参数（不传则回落到同名环境变量/默认值）：
-
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `-cloud` | 云端地址，多个用逗号分隔（DNS 切换间隙自动轮询） | 环境变量 `CLOUD_URLS` |
-| `-token` | 设备 token（必改，与云端一致） | 环境变量 `DEVICE_TOKEN` |
-| `-printer` | 打印机 IPP 地址 | `ipp://192.168.1.100:631/ipp/print` |
-| `-name` | 打印机显示名 | `家里打印机` |
-| `-key` | 端到端加密家庭密钥（可选） | 空=不加密 |
-| `-mock` | 模拟打印调试 | `0` |
-
-**方式二 · systemd 常驻**（标准 Linux / NAS，长期运行推荐）：
-
-```ini
-# /etc/systemd/system/fp-agent.service
+cat > /etc/systemd/system/fp-agent.service <<'EOF'
 [Unit]
 Description=FamilyPrint Agent
 After=network-online.target
 [Service]
 ExecStart=/usr/local/bin/fp-agent -cloud wss://print.example.com/ws/agent -token 改成设备token -printer ipp://192.168.1.100:631/ipp/print
-# 端到端加密（可选）：在上面的 ExecStart 末尾追加  -key 你的家庭密钥
 Restart=always
 RestartSec=5
 [Install]
 WantedBy=multi-user.target
-```
-
-```bash
+EOF
 systemctl daemon-reload && systemctl enable --now fp-agent
 journalctl -u fp-agent -f   # 应看到 "已连接云端"
 ```
 
-**OpenWrt（procd）**——同样改好 3 个「必改」值后直接使用：
+**OpenWrt（procd）**：
 
 ```bash
 cat > /etc/init.d/fp-agent <<'EOF'
@@ -272,212 +369,50 @@ EOF
 chmod +x /etc/init.d/fp-agent && /etc/init.d/fp-agent enable && /etc/init.d/fp-agent start
 ```
 
-### 第 5 步 · 全链路验证
+### 附录 E · 二进制完整参数
 
-- [ ] 手机**关 WiFi 用流量**打开网址 → 登录 → 传 PDF → 点"开始打印" → **出纸**
-- [ ] 份数=2、双面 → 出纸正确
-- [ ] 微信内打开网址 → 出现提示卡 → 能正常上传
-- [ ] 软路由重启 → agent 自动重连 → 打印机恢复在线
-- [ ] 老人手机"添加到主屏幕"→ 以后一点即开
+**fp-agent**：
 
-### 第 6 步 · 交给家人（一次性）
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `-cloud` | 云端地址，多个用逗号分隔（换 VPS 平滑切换） | 环境变量 `CLOUD_URLS` |
+| `-token` | 设备 token（与云端一致） | 环境变量 `DEVICE_TOKEN` |
+| `-printer` | 打印机 IPP 地址 | `ipp://192.168.1.100:631/ipp/print` |
+| `-name` | 打印机显示名 | `家里打印机` |
+| `-key` | 端到端加密家庭密钥（可选） | 空=不加密 |
+| `-mock` | 模拟打印调试 | `0` |
 
-> 咱家打印网址：https://print.example.com
-> 账号 xxx 密码 xxx（登录一次以后就不用输了）
-> 用法：点"选择文件" → 点"开始打印" → 回家取
+**fp-cloud** 参数见[附录 A](#附录-a--二进制运行云端不用-docker)。
 
----
-
-## 📄 docker-compose 完整配置（可直接复制使用）
-
-以下两个文件即为仓库内 `docker-compose.cloud.yml` / `docker-compose.agent.yml` 的可直接使用版本——镜像走 GHCR 公共仓库，**无需源码、无需编译**，改好 3 个值即可启动。
-
-**云端 · docker-compose.cloud.yml**（VPS 上 `mkdir familyprint && cd familyprint && nano docker-compose.cloud.yml` 粘贴保存）：
-
-```yaml
-# 云端（VPS）—— FamilyPrint-Cloud 服务端（HTTP :8000，HTTPS 反代使用你自己的方案）
-services:
-  cloud:
-    image: ghcr.io/mohan9898/familyprint-cloud:latest   # 多架构：amd64/arm64/armv7 自动匹配
-    # build: ./cloud-go                                  # 想本地构建则注释上一行、启用这一行
-    container_name: fp-cloud
-    restart: unless-stopped
-    environment:
-      # ↓↓↓ 必改：会话密钥（openssl rand -hex 32 生成）
-      - SECRET_KEY=请改成一段随机长字符串
-      # ↓↓↓ 必改：设备 token（与家庭端 compose 文件中一致）
-      - DEVICE_TOKEN=请设置设备token_与家庭端一致
-      - DATA_DIR=/app/data
-      - LISTEN=:8000
-    volumes:
-      - cloud-data:/app/data
-    ports:
-      - "8000:8000"   # 服务端 HTTP 端口，供外部反向代理回源使用
-
-volumes:
-  cloud-data:
-```
-
-启动：`docker compose -f docker-compose.cloud.yml up -d`，然后把你的 HTTPS 反代回源到 `服务器IP:8000` 即可。
-
-**家庭端 · docker-compose.agent.yml**（软路由上保存，变量已直接写入文件）：
-
-```yaml
-# 家庭端（软路由/NAS）—— Go Agent，IPP 直连打印机，无 CUPS
-services:
-  agent:
-    image: ghcr.io/mohan9898/familyprint-agent:latest   # 多架构：amd64/arm64/armv7 自动匹配
-    # build: ./agent-go                                  # 想本地构建则注释上一行、启用这一行
-    container_name: fp-agent
-    restart: unless-stopped
-    network_mode: host          # 直接访问家庭网段内的打印机
-    environment:
-      # ↓↓↓ 必改：云端域名（与你部署的服务端域名一致）
-      - CLOUD_URLS=wss://print.example.com/ws/agent
-      # ↓↓↓ 必改：设备 token（与云端 compose 文件中一致）
-      - DEVICE_TOKEN=请设置设备token_与云端一致
-      # ↓↓↓ 必改：打印机 IPP 地址（打印机面板查看 IP）
-      - PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print
-      - PRINTER_NAME=家里打印机                # 可改：打印机显示名
-      - MOCK=0
-      # 可选：端到端加密家庭密钥——填上后浏览器首次打印时输入同一密钥，云端只见密文
-      - PRINT_KEY=
-```
-
-启动（改好文件内 3 个「必改」值后，无需任何命令行变量）：
+### 附录 F · 从源码构建
 
 ```bash
-docker compose -f docker-compose.agent.yml up -d
-docker logs -f fp-agent   # 应看到 "已连接云端 wss://print.example.com/ws/agent"
+cd cloud-go && go build -o fp-cloud .   # 需 Go 1.22+
+cd agent-go && go build -o fp-agent .
+
+bash build-all.sh   # 全平台交叉编译，产出 release/ 目录
 ```
 
-> 本地构建镜像（不用 GHCR）：把 `image:` 行换回 `build: ./cloud-go` / `build: ./agent-go` 即可。
-
----
-
-## 🔐 安全说明
-
-### 端到端加密（推荐开启）
-
-打印文件在**浏览器内加密**（AES-256-GCM，密钥由家庭密钥经 PBKDF2 派生），经云端中转全程密文，**云端不可读**；家庭端 Agent 用同一密钥解密后再送打印机。
-
-开启只需两步：
-
-1. 家庭端 Agent 配置环境变量 `PRINT_KEY=你的家庭密钥`
-2. 家人浏览器首次打印时弹窗输入同一密钥（存 localStorage，一次即可）
-
-> 密钥不匹配 → 任务失败并提示"家庭密钥不匹配"，不会打出乱码。不设置 `PRINT_KEY` 则走明文路径。加密文件在记录中显示为 `print.enc`（文件名也在密文内）。
-
-### 其他内置安全机制
-
-| 层面 | 机制 |
-|------|------|
-| 传输 | 全程 HTTPS / WSS；Cookie 为 HttpOnly SameSite |
-| 设备接入 | token 走 `X-Device-Token` 头不进 URL；常数时间比较防时序攻击；单设备互斥（新连接顶替旧连接） |
-| 账号 | 口令 pbkdf2 哈希存储；登录失败 5 次锁定 10 分钟 |
-| 数据 | 上传白名单（PDF/JPG/PNG/DOCX/TXT）≤50MB、每日 30 任务；打印完成即删（云端+家庭端双侧），失败任务 24h 兜底清理 |
-
-**上线前检查单**：域名走 HTTPS ✅ · 两端 DEVICE_TOKEN 为 64 位随机串且一致 ✅ · SECRET_KEY 与之不同 ✅ · VPS 防火墙仅放行 80/443 ✅
-
----
-
-## 🔄 备份与迁移
-
-### 日常备份
+推送标签 `v*` 后 GitHub Actions 自动编译全部平台并发布：
 
 ```bash
-bash backup.sh                       # 生成 fp-backup-xxx.tar.gz（<1MB，含账号与记录）
-bash restore.sh fp-backup-xxx.tar.gz # 恢复
+git tag v1.0.2 && git push origin v1.0.2
 ```
 
-自动识别 Docker 卷（`fp_cloud-data`）与本地目录（`cloud-go/data`）。建议加 crontab：
-
-```
-0 3 * * * cd /opt/familyprint && ./backup.sh >> backup.log 2>&1
-```
-
-### 换 VPS 迁移（约 5 分钟 + DNS 生效）
-
-1. 旧 VPS：`bash backup.sh` → 下载备份文件
-2. 新 VPS：上传项目与备份 → `bash restore.sh fp-backup-xxx.tar.gz`
-3. 域名 A 记录改指新 VPS IP —— **家人端和软路由完全不用动**
-
-> 兜底：软路由 `CLOUD_URLS` 支持逗号分隔多地址（如 `wss://新域名/ws/agent,wss://旧直连/ws/agent`），DNS 切换间隙自动轮询，打印不中断。
-
----
-
-## 🔧 故障排查
-
-| 症状 | 原因与处理 |
-|------|-----------|
-| 网页打不开 | DNS 未生效（`ping 域名` 核对 IP）；反代未配好或证书未签下（检查你的反代配置，确认 80/443 放行且域名已备案） |
-| agent 连不上云端 | 两端 token 不一致；域名写错；VPS 防火墙未放行 443 |
-| 任务一直"排队中" | agent 离线（`docker logs fp-agent`）；打印机离线 |
-| "失败：打印机连接失败" | PRINTER_IPP_URL 写错（先 curl 验证 631 端口）；打印机 IP 变了（绑定静态 IP） |
-| 双面/彩色不生效 | 个别品牌 IPP 属性名有差异，提 issue 附品牌型号 |
-| "不支持的文件类型" | 支持 PDF/JPG/PNG/DOCX/TXT；.doc 先另存为 .docx 或 PDF |
-| 30 天后又要求登录 | 正常，重登一次即可；可改 `SESSION_DAYS` |
-
-## 🧰 日常运维速查
-
-| 操作 | 命令 |
-|------|------|
-| 云端日志 | `docker logs -f fp-cloud`（二进制：`journalctl -u fp-cloud -f`） |
-| Agent 日志 | `docker logs -f fp-agent`（二进制：`journalctl -u fp-agent -f`） |
-| 备份数据 | `./backup.sh` |
-| 升级版本 | 更新镜像/二进制 → `docker compose ... up -d` 或 `systemctl restart fp-agent` |
-| 加家人账号 | 目前经 sqlite 添加（见第 2 步），网页端账号管理在 V1.1 |
-
----
-
-## 🖥️ 平台支持
-
-Go 交叉编译，`./build-all.sh` 一键产出全部平台二进制（Release 页可直接下载）：
-
-| 平台 | Agent | Cloud | 典型设备 |
-|------|:---:|:---:|----------|
-| linux/amd64 | ✅ | ✅ | x86 软路由、NAS、VPS、旧电脑 |
-| linux/arm64 | ✅ | ✅ | 树莓派 4/5、ARM 盒子、N1/R2S/R4S |
-| linux/arm v7 | ✅ | ✅ | 树莓派 3、老款 32 位 ARM 设备 |
-| darwin（Intel/Apple Silicon） | ✅ | ✅ | Mac |
-| windows/amd64 | ✅ | ✅ | Windows 电脑 / 闲置笔记本 |
-
-> USB 打印机暂不支持（需 CUPS 桥接），当前面向 IPP 网络打印机。
-
-## 📁 项目结构
+### 附录 G · 项目结构
 
 ```
 familyprint/
-├── cloud-go/                 # 云端：账号 + 任务队列 + 文件中转（含内嵌网页前端）
-│   ├── main.go
-│   ├── static/index.html     # 老人友好单页前端
-│   └── Dockerfile
-├── agent-go/                 # 家庭端：WSS 连云端 + IPP 直连打印机
-│   ├── main.go
-│   └── Dockerfile
-├── docker-compose.cloud.yml  # 云端编排（fp-cloud 服务端）
+├── cloud-go/                 # 云端服务端（含内嵌网页前端）
+├── agent-go/                 # 家庭端客户端
+├── docker-compose.cloud.yml  # 云端编排
 ├── docker-compose.agent.yml  # 家庭端编排
 ├── build-all.sh              # 全平台交叉编译
 ├── backup.sh / restore.sh    # 数据备份与恢复
-└── .github/workflows/        # CI + Release 自动构建发布
+└── .github/workflows/        # CI + 自动发布
 ```
 
-## 🔄 从源码构建 & 发布新版本
-
-```bash
-# 本地编译（需 Go 1.22+）
-cd cloud-go && go build -o fp-cloud .
-cd agent-go && go build -o fp-agent .
-
-# 全平台交叉编译
-bash build-all.sh   # 产出 release/ 目录
-```
-
-推送标签 `v*` 后，GitHub Actions 自动编译 12 个平台二进制挂到 Release，并推送多架构 Docker 镜像到 GHCR：
-
-```bash
-git tag v1.0.1 && git push origin v1.0.1
-```
+---
 
 ## 🤖 纯 AI 编写声明
 
