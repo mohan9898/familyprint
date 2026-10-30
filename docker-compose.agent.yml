@@ -9,7 +9,7 @@ services:
     restart: unless-stopped
     network_mode: host          # 直接访问家庭网段内的打印机
     environment:
-      # ↓↓↓ 必改：云端域名（与云端 Caddyfile 一致）
+      # ↓↓↓ 必改：云端域名（与你部署的服务端域名一致）
       - CLOUD_URLS=wss://print.你的域名.com/ws/agent
       # ↓↓↓ 必改：设备 token（与云端 docker-compose.cloud.yml 中一致）
       - DEVICE_TOKEN=请设置设备token_与云端一致
