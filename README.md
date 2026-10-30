@@ -119,32 +119,34 @@ curl -s http://127.0.0.1:8000/api/agent-status   # 有响应即服务端正常
 <details>
 <summary>📦 二进制方式运行云端（不用 Docker）</summary>
 
-**方式一 · 启动脚本（推荐）**——变量写进脚本，之后启动只敲一条命令：
+**下载二进制**（按 CPU 架构选择，一般 VPS 是 amd64）：
 
 ```bash
-# 1. 下载二进制
 wget https://github.com/mohan9898/familyprint/releases/latest/download/fp-cloud-linux-amd64 -O /usr/local/bin/fp-cloud
 chmod +x /usr/local/bin/fp-cloud
-
-# 2. 创建启动脚本（改好脚本内 4 行变量即可）
-cat > /opt/start-cloud.sh <<'EOF'
-#!/bin/sh
-export SECRET_KEY=请改成一段随机长字符串      # 必改：openssl rand -hex 32 生成
-export DEVICE_TOKEN=请设置设备token_与家庭端一致   # 必改：与家庭端一致
-export DATA_DIR=/var/lib/familyprint
-export LISTEN=127.0.0.1:8000
-mkdir -p "$DATA_DIR"
-exec /usr/local/bin/fp-cloud
-EOF
-chmod +x /opt/start-cloud.sh
-
-# 3. 启动 / 停止都只要一条命令
-/opt/start-cloud.sh                                        # 前台启动，Ctrl+C 停止
-nohup /opt/start-cloud.sh > /var/log/fp-cloud.log 2>&1 &   # 后台启动
-kill $(pgrep fp-cloud)                                     # 停止
 ```
 
-**方式二 · systemd 常驻**（长期运行推荐，同样只改文件内变量）：
+**启动**（与 EasyTier 一样的单命令风格，参数直接跟在命令后面）：
+
+```bash
+# 前台启动（快速测试）
+fp-cloud -secret 你的会话密钥 -token 你的设备token -data /var/lib/familyprint -listen 127.0.0.1:8000
+
+# 后台启动
+nohup fp-cloud -secret 你的会话密钥 -token 你的设备token -data /var/lib/familyprint -listen 127.0.0.1:8000 > /var/log/fp-cloud.log 2>&1 &
+```
+
+全部参数（不传则回落到同名环境变量/默认值）：
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `-secret` | 会话密钥（必改） | 环境变量 `SECRET_KEY` |
+| `-token` | 设备 token（必改，与家庭端一致） | 环境变量 `DEVICE_TOKEN` |
+| `-data` | 数据目录 | `data`（或 `DATA_DIR`） |
+| `-listen` | 监听地址 | `:8000`（或 `LISTEN`） |
+| `-session-days` | 登录会话有效天数 | `30` |
+
+**方式二 · systemd 常驻**（长期运行推荐）：
 
 ```bash
 cat > /etc/systemd/system/fp-cloud.service <<'EOF'
@@ -152,13 +154,7 @@ cat > /etc/systemd/system/fp-cloud.service <<'EOF'
 Description=FamilyPrint Cloud
 After=network-online.target
 [Service]
-# ↓↓↓ 必改：会话密钥（openssl rand -hex 32 生成）
-Environment=SECRET_KEY=请改成一段随机长字符串
-# ↓↓↓ 必改：设备 token（与家庭端一致）
-Environment=DEVICE_TOKEN=请设置设备token_与家庭端一致
-Environment=DATA_DIR=/var/lib/familyprint
-Environment=LISTEN=127.0.0.1:8000
-ExecStart=/usr/local/bin/fp-cloud
+ExecStart=/usr/local/bin/fp-cloud -secret 改成会话密钥 -token 改成设备token -data /var/lib/familyprint -listen 127.0.0.1:8000
 Restart=always
 RestartSec=5
 [Install]
@@ -207,31 +203,38 @@ docker logs -f fp-agent   # 应看到 "已连接云端 wss://print.example.com/w
 | Mac | `fp-agent-darwin-amd64` / `fp-agent-darwin-arm64` |
 | Windows | `fp-agent-windows-amd64.exe` |
 
-**方式一 · 启动脚本（推荐）**——变量写进脚本，之后启动只敲一条命令：
+**下载二进制**（按设备架构选择，见上表）：
 
 ```bash
-# 1. 下载二进制（按设备架构选择，见上表）
 wget https://github.com/mohan9898/familyprint/releases/latest/download/fp-agent-linux-arm64 -O /usr/local/bin/fp-agent
 chmod +x /usr/local/bin/fp-agent
-
-# 2. 创建启动脚本（改好脚本内 3 行必改变量即可）
-cat > /opt/start-agent.sh <<'EOF'
-#!/bin/sh
-export CLOUD_URLS=wss://print.example.com/ws/agent            # 必改：云端域名
-export DEVICE_TOKEN=请设置设备token_与云端一致                  # 必改：与云端一致
-export PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print      # 必改：打印机 IPP 地址
-# export PRINT_KEY=你的家庭密钥                                 # 可选：端到端加密
-exec /usr/local/bin/fp-agent
-EOF
-chmod +x /opt/start-agent.sh
-
-# 3. 启动 / 停止都只要一条命令
-/opt/start-agent.sh                                           # 前台启动，Ctrl+C 停止
-nohup /opt/start-agent.sh > /var/log/fp-agent.log 2>&1 &      # 后台启动
-kill $(pgrep fp-agent)                                        # 停止
 ```
 
-**方式二 · systemd 常驻**（标准 Linux / NAS，长期运行推荐，同样只改文件内变量）：
+**启动**（与 EasyTier 一样的单命令风格）：
+
+```bash
+# 前台启动（快速测试）
+fp-agent -cloud wss://print.example.com/ws/agent -token 你的设备token -printer ipp://192.168.1.100:631/ipp/print
+
+# 开启端到端加密：加 -key 参数（与浏览器首次打印时输入的密钥一致）
+fp-agent -cloud wss://print.example.com/ws/agent -token 你的设备token -printer ipp://192.168.1.100:631/ipp/print -key 你的家庭密钥
+
+# 后台启动
+nohup fp-agent -cloud wss://print.example.com/ws/agent -token 你的设备token -printer ipp://192.168.1.100:631/ipp/print > /var/log/fp-agent.log 2>&1 &
+```
+
+全部参数（不传则回落到同名环境变量/默认值）：
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `-cloud` | 云端地址，多个用逗号分隔（DNS 切换间隙自动轮询） | 环境变量 `CLOUD_URLS` |
+| `-token` | 设备 token（必改，与云端一致） | 环境变量 `DEVICE_TOKEN` |
+| `-printer` | 打印机 IPP 地址 | `ipp://192.168.1.100:631/ipp/print` |
+| `-name` | 打印机显示名 | `家里打印机` |
+| `-key` | 端到端加密家庭密钥（可选） | 空=不加密 |
+| `-mock` | 模拟打印调试 | `0` |
+
+**方式二 · systemd 常驻**（标准 Linux / NAS，长期运行推荐）：
 
 ```ini
 # /etc/systemd/system/fp-agent.service
@@ -239,15 +242,8 @@ kill $(pgrep fp-agent)                                        # 停止
 Description=FamilyPrint Agent
 After=network-online.target
 [Service]
-# ↓↓↓ 必改：云端域名（与你部署的服务端域名一致）
-Environment=CLOUD_URLS=wss://print.example.com/ws/agent
-# ↓↓↓ 必改：设备 token（与云端一致）
-Environment=DEVICE_TOKEN=请设置设备token_与云端一致
-# ↓↓↓ 必改：打印机 IPP 地址（打印机面板查看 IP）
-Environment=PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print
-# 可选：端到端加密家庭密钥——填上后浏览器首次打印时输入同一密钥，云端只见密文
-# Environment=PRINT_KEY=你的家庭密钥
-ExecStart=/usr/local/bin/fp-agent
+ExecStart=/usr/local/bin/fp-agent -cloud wss://print.example.com/ws/agent -token 改成设备token -printer ipp://192.168.1.100:631/ipp/print
+# 端到端加密（可选）：在上面的 ExecStart 末尾追加  -key 你的家庭密钥
 Restart=always
 RestartSec=5
 [Install]
@@ -268,13 +264,7 @@ START=99
 USE_PROCD=1
 start_service() {
     procd_open_instance
-    procd_set_param command /usr/local/bin/fp-agent
-    # ↓↓↓ 必改：云端域名
-    procd_set_param env CLOUD_URLS=wss://print.example.com/ws/agent
-    # ↓↓↓ 必改：设备 token（与云端一致）
-    procd_set_param env DEVICE_TOKEN=请设置设备token_与云端一致
-    # ↓↓↓ 必改：打印机 IPP 地址
-    procd_set_param env PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print
+    procd_set_param command /usr/local/bin/fp-agent -cloud wss://print.example.com/ws/agent -token 改成设备token -printer ipp://192.168.1.100:631/ipp/print
     procd_set_param respawn
     procd_close_instance
 }
