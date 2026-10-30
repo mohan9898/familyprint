@@ -278,6 +278,87 @@ chmod +x /etc/init.d/fp-agent && /etc/init.d/fp-agent enable && /etc/init.d/fp-a
 
 ---
 
+## 📄 docker-compose 完整配置（可直接复制使用）
+
+以下两个文件即为仓库内 `docker-compose.cloud.yml` / `docker-compose.agent.yml` 的可直接使用版本——镜像走 GHCR 公共仓库，**无需源码、无需编译**，改好 3 个值即可启动。
+
+**云端 · docker-compose.cloud.yml**（VPS 上 `mkdir familyprint && cd familyprint && nano docker-compose.cloud.yml` 粘贴保存）：
+
+```yaml
+# 云端（VPS）—— FamilyPrint-Cloud + Caddy 自动 HTTPS
+services:
+  cloud:
+    image: ghcr.io/mohan9898/familyprint-cloud:latest   # 多架构：amd64/arm64/armv7 自动匹配
+    container_name: fp-cloud
+    restart: unless-stopped
+    environment:
+      - SECRET_KEY=改成一段随机长字符串          # openssl rand -hex 32
+      - DEVICE_TOKEN=改成设备token_与家庭端一致   # openssl rand -hex 32
+      - DATA_DIR=/app/data
+      - LISTEN=:8000
+    volumes:
+      - cloud-data:/app/data
+    ports:
+      - "127.0.0.1:8000:8000"   # 仅本机，由 Caddy 反代对外
+
+  caddy:
+    image: caddy:latest
+    container_name: fp-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+
+volumes:
+  cloud-data:
+  caddy-data:
+```
+
+**云端 · Caddyfile**（同目录保存，改域名）：
+
+```
+print.example.com {
+    reverse_proxy cloud:8000
+}
+```
+
+启动：`docker compose -f docker-compose.cloud.yml up -d`
+
+**家庭端 · docker-compose.agent.yml**（软路由上保存，或直接用命令行变量）：
+
+```yaml
+# 家庭端（软路由/NAS）—— Go Agent，IPP 直连打印机，无 CUPS
+# 内存占用 ~10MB；host 网络模式以直接访问家庭网段内的打印机
+services:
+  agent:
+    image: ghcr.io/mohan9898/familyprint-agent:latest   # 多架构：amd64/arm64/armv7 自动匹配
+    container_name: fp-agent
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - CLOUD_URLS=wss://print.example.com/ws/agent              # ← 改成你的域名
+      - DEVICE_TOKEN=改成设备token_与云端一致                      # ← 改成与云端一致
+      - PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print        # ← 改成打印机 IPP 地址
+      - PRINTER_NAME=家里打印机
+      - MOCK=0
+      - PRINT_KEY=                        # 端到端加密家庭密钥（可选）：填上后浏览器首次打印时输入同一密钥
+```
+
+启动（变量也可以写进同目录 `.env` 文件后直接 `docker compose up -d`）：
+
+```bash
+DEVICE_TOKEN=与云端一致 \
+PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print \
+docker compose -f docker-compose.agent.yml up -d
+```
+
+> 本地构建镜像（不用 GHCR）：把 `image:` 行换回 `build: ./cloud-go` / `build: ./agent-go` 即可。
+
+---
+
 ## 🔐 安全说明
 
 ### 端到端加密（推荐开启）
