@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>家印 · 家庭打印</title>
+<style>
+:root{--main:#2b6cb8;--ok:#2f9e44;--warn:#e8590c;--err:#c92a2a;--bg:#f2f5f9}
+*{box-sizing:border-box;margin:0;font-family:"PingFang SC","Microsoft YaHei",sans-serif}
+body{background:var(--bg);color:#333;min-height:100vh}
+.wrap{max-width:480px;margin:0 auto;padding:16px 16px 40px}
+h1{font-size:22px;text-align:center;padding:16px 0 4px;color:var(--main)}
+.top{display:flex;justify-content:center;gap:14px;color:#999;font-size:14px;margin-bottom:14px}
+.top a{color:#999}
+.card{background:#fff;border-radius:14px;padding:18px;box-shadow:0 2px 8px rgba(0,0,0,.06);margin-bottom:14px}
+input,select{width:100%;padding:13px;font-size:17px;border:1px solid #ccc;border-radius:10px;margin-bottom:10px}
+button{cursor:pointer}
+.big{width:100%;padding:16px;font-size:19px;border:0;border-radius:12px;background:var(--main);color:#fff;font-weight:bold}
+.big[disabled]{background:#adb5bd}
+.drop{border:2px dashed var(--main);border-radius:12px;padding:28px 10px;text-align:center;color:var(--main);font-size:17px;background:#eaf2fb;cursor:pointer}
+.row{display:flex;gap:10px;margin:10px 0}
+.row>div{flex:1}
+.lbl{font-size:14px;color:#666;margin-bottom:4px}
+.seg{display:flex;border:1px solid #ccc;border-radius:10px;overflow:hidden}
+.seg button{flex:1;padding:11px 2px;border:0;background:#fff;font-size:15px}
+.seg button.on{background:var(--main);color:#fff}
+.info{margin:10px 0;padding:9px;background:#f1f3f5;border-radius:8px;font-size:14px;word-break:break-all;display:none}
+.tip{background:#fffbe6;border:1px solid #ffe58f;border-radius:10px;padding:10px;font-size:13px;color:#874d00;line-height:1.6;margin-bottom:12px;display:none}
+.state{text-align:center;padding:6px 0 0;font-size:15px}
+.records{font-size:14px}
+.rec{display:flex;justify-content:space-between;align-items:center;padding:10px 2px;border-bottom:1px solid #eee}
+.rec:last-child{border:0}
+.badge{padding:2px 9px;border-radius:12px;font-size:12px;color:#fff}
+.q{background:#868e96}.p{background:var(--warn)}.c{background:var(--ok)}.x{background:var(--err)}
+.toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);background:#333;color:#fff;padding:9px 18px;border-radius:20px;font-size:14px;display:none;z-index:9}
+.empty{color:#aaa;text-align:center;padding:16px}
+a{cursor:pointer}
+</style>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+<div class="wrap">
+  <!-- 登录 -->
+  <div id="login" hidden>
+    <h1>🖨️ 家印</h1>
+    <div class="card">
+      <input id="u" placeholder="用户名" autocomplete="username">
+      <input id="p" type="password" placeholder="密码" autocomplete="current-password">
+      <button class="big" onclick="login()">登 录</button>
+      <p class="empty" style="padding:10px 0 0">登录一次，30 天免密</p>
+    </div>
+  </div>
+
+  <!-- 主界面 -->
+  <div id="main" hidden>
+    <h1>🖨️ 家印</h1>
+    <div class="top"><span id="hello"></span><a onclick="logout()">退出</a></div>
+    <div class="tip" id="wxTip">💡 微信里使用：点"选择文件"后选 <b>照片</b> 或 <b>浏览</b>；聊天里的文件先<b>长按→保存到手机</b>再选。建议右上角"···"→收藏本页。</div>
+    <div class="card">
+      <div class="drop" onclick="f.click()">📄 点击选择要打印的文件<div style="font-size:13px;color:#888;margin-top:4px" id="sub">PDF / 图片 / Word / 文本，≤50MB</div></div>
+      <input type="file" id="f" hidden accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png,.docx,.txt">
+      <div class="info" id="finfo"></div>
+      <div class="row">
+        <div><div class="lbl">打印机</div><select id="pr"></select></div>
+        <div><div class="lbl">份数</div><select id="cp"><option>1</option><option>2</option><option>3</option><option>5</option></select></div>
+      </div>
+      <div class="row">
+        <div><div class="lbl">颜色</div><div class="seg" id="sc"><button data-v="0" class="on">黑白</button><button data-v="1">彩色</button></div></div>
+        <div><div class="lbl">单双面</div><div class="seg" id="ss"><button data-v="one-sided" class="on">单面</button><button data-v="two-sided-long-edge">双面</button></div></div>
+      </div>
+      <div class="row"><div><div class="lbl">纸张</div><select id="pa"><option>A4</option><option>A5</option><option>Letter</option></select></div></div>
+      <button class="big" id="go" onclick="doPrint()">🖨️ 开始打印</button>
+      <div class="state" id="st" hidden></div>
+    </div>
+    <div class="card records">
+      <div class="lbl" style="display:flex;justify-content:space-between"><b>打印记录</b><a style="color:var(--main)" onclick="loadJobs()">刷新</a></div>
+      <div id="jobs"><p class="empty">加载中…</p></div>
+    </div>
+  </div>
+</div>
+
+<script>
+let color=0,sides="one-sided",cur=0,timer=null;
+const $=i=>document.getElementById(i);
+const toast=m=>{const t=$("toast");t.textContent=m;t.style.display="block";setTimeout(()=>t.style.display="none",2600)};
+async function api(p,o={}){const r=await fetch(p,{credentials:"include",...o});
+  if(r.status==401){show("login");throw 0}
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(d.detail||"操作失败");
+  return d}
+document.querySelectorAll(".seg").forEach(s=>s.onclick=e=>{
+  if(e.target.tagName!="BUTTON")return;
+  s.querySelectorAll("button").forEach(b=>b.classList.remove("on"));e.target.classList.add("on");
+  if(s.id=="sc")color=+e.target.dataset.v;else sides=e.target.dataset.v});
+$("f").onchange=e=>{const f=e.target.files[0];
+  if(f){$("finfo").style.display="block";$("finfo").textContent="📎 "+f.name+"（"+(f.size/1048576).toFixed(1)+"MB）";$("st").hidden=true}};
+$("f").onclick=e=>e.stopPropagation();
+
+function show(id){for(const x of["login","main"])$(x).hidden=(x!=id)}
+async function login(){try{
+  await api("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:$("u").value.trim(),password:$("p").value})});
+  enter()}catch(e){e&&toast(e.message||"登录失败")}}
+async function logout(){await api("/api/logout",{method:"POST"});show("login")}
+
+async function enter(){
+  show("main");loadPrinters();loadJobs();
+  try{const me=await api("/api/me");$("hello").textContent=(me.display_name||me.username)+"，欢迎"}catch(e){}
+}
+async function loadPrinters(){try{
+  const l=await api("/api/printers");
+  $("pr").innerHTML=l.map(p=>`<option>${p.name}${p.status!="online"?"（离线，可先排队）":""}</option>`).join("");
+}catch(e){}}
+
+// ---------- 端到端加密（AES-256-GCM，密钥由家庭密钥派生）----------
+const E2EE_SALT=new TextEncoder().encode("familyprint-e2ee-v1"),E2EE_ITERS=100000;
+function b64(u8){let s="";for(let i=0;i<u8.length;i+=32768)s+=String.fromCharCode(...u8.subarray(i,i+32768));return btoa(s)}
+async function e2eeKey(){
+  let pass=localStorage.getItem("fp_e2ee");
+  if(!pass){
+    pass=prompt("请输入家庭打印密钥（首次使用需向管理员索取，输一次即可）");
+    if(!pass)throw new Error("未输入密钥");
+    localStorage.setItem("fp_e2ee",pass);
+  }
+  const base=await crypto.subtle.importKey("raw",new TextEncoder().encode(pass),"PBKDF2",false,["deriveKey"]);
+  return crypto.subtle.deriveKey({name:"PBKDF2",salt:E2EE_SALT,iterations:E2EE_ITERS,hash:"SHA-256"},base,{name:"AES-GCM",length:256},false,["encrypt"]);
+}
+async function e2eeEncrypt(file){
+  const key=await e2eeKey();
+  const data=new Uint8Array(await file.arrayBuffer());
+  const inner=new TextEncoder().encode(JSON.stringify({n:file.name,m:file.type||"application/octet-stream",d:b64(data)}));
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},key,inner));
+  return new File([b64(iv)+"."+b64(ct)],"print.enc");
+}
+async function doPrint(){
+  const f0=$("f").files[0];
+  if(!f0)return toast("请先选择文件");
+  let f=f0;
+  try{f=await e2eeEncrypt(f0)}catch(e){return toast(e.message||"加密失败")}
+  const fd=new FormData();
+  fd.append("file",f);fd.append("printer",$("pr").value);fd.append("copies",$("cp").value);
+  fd.append("color",color);fd.append("sides",sides);fd.append("paper",$("pa").value);
+  $("go").disabled=true;$("go").textContent="正在发送…";
+  try{
+    const j=await api("/api/print-jobs",{method:"POST",body:fd});
+    cur=j.id;$("f").value="";$("finfo").style.display="none";
+    $("st").hidden=false;$("st").innerHTML="✅ 已发送到打印机，<span id='js'>排队中</span>——回家取件即可";
+    timer=setInterval(poll,4000);loadJobs();
+  }catch(e){toast(e.message)}
+  $("go").disabled=false;$("go").textContent="🖨️ 开始打印";
+}
+const TXT={queued:"排队中",processing:"打印中…",completed:"已完成 ✅",canceled:"已取消",failed:"失败"};
+async function poll(){
+  if(!cur)return;
+  try{
+    const jobs=await api("/api/print-jobs");const j=jobs.find(x=>x.id==cur);
+    if(j){$("js").textContent=TXT[j.status]||j.status;
+      if(["completed","canceled","failed"].includes(j.status)){clearInterval(timer);cur=0;loadJobs()}}
+  }catch(e){}
+}
+async function loadJobs(){
+  try{
+    const jobs=await api("/api/print-jobs");
+    $("jobs").innerHTML=jobs.length?jobs.slice(0,10).map(j=>
+      `<div class="rec"><div><b>${j.orig_name}</b><br><span style="color:#999;font-size:12px">${j.created_at} · ${j.copies}份 · ${j.color?"彩色":"黑白"} · ${j.sides.startsWith("two")?"双面":"单面"}</span></div>
+      <div style="text-align:right"><span class="badge ${{queued:"q",processing:"p",completed:"c",canceled:"x",failed:"x"}[j.status]||"q"}">${TXT[j.status]||j.status}</span>
+      ${j.status=="queued"?`<br><a style="color:var(--err);font-size:12px" onclick="cancel(${j.id})">取消</a>`:""}</div></div>`).join("")
+    :"<p class='empty'>还没有打印记录</p>";
+  }catch(e){}
+}
+async function cancel(id){try{await api(`/api/print-jobs/${id}/cancel`,{method:"POST"});loadJobs();toast("已取消")}catch(e){toast(e.message)}}
+
+(async()=>{
+  if(navigator.userAgent.toLowerCase().includes("micromessenger")){
+    $("wxTip").style.display="block";
+    if(/iphone|ipad/.test(navigator.userAgent.toLowerCase()))$("sub").textContent="苹果手机选文件时点\"浏览\"，从文件 App 里选";
+  }
+  try{await api("/api/me");enter()}catch(e){}
+})();
+</script>
+</body>
+</html>
