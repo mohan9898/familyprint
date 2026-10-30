@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -35,6 +36,24 @@ var (
 	e2eeKey     = os.Getenv("PRINT_KEY") // 端到端加密家庭密钥（与浏览器端一致）；为空则不启用
 	mock        = envOr("MOCK", "0") == "1"
 )
+
+func init() {
+	// 命令行参数（优先于环境变量），支持一条命令直接启动：
+	// fp-agent -cloud wss://print.example.com/ws/agent -token xxx -printer ipp://192.168.1.100:631/ipp/print
+	cloud := strings.Join(cloudURLs, ",")
+	var mockStr string
+	flag.StringVar(&cloud, "cloud", cloud, "云端地址，多个用逗号分隔（wss://host/ws/agent,...）")
+	flag.StringVar(&deviceToken, "token", deviceToken, "设备 token（与云端一致）")
+	flag.StringVar(&printerURI, "printer", printerURI, "打印机 IPP 地址")
+	flag.StringVar(&printerName, "name", printerName, "打印机显示名")
+	flag.StringVar(&e2eeKey, "key", e2eeKey, "端到端加密家庭密钥（可选，与浏览器端一致）")
+	flag.StringVar(&mockStr, "mock", envOr("MOCK", "0"), "模拟打印（1=开启，调试用）")
+	flag.Parse()
+	if s := strings.TrimSpace(cloud); s != "" {
+		cloudURLs = strings.Split(s, ",")
+	}
+	mock = mockStr == "1"
+}
 
 func envOr(k, d string) string {
 	if v := os.Getenv(k); v != "" {
@@ -259,7 +278,9 @@ func connectOnce(rawURL string, quit chan struct{}) error {
 			case <-ticker.C:
 				deadline := time.Now().Add(10 * time.Second)
 				if err := conn.WriteControl(websocket.PingMessage, nil, deadline); err != nil {
-					conn.Close(); close(done); return
+					conn.Close()
+					close(done)
+					return
 				}
 				reportPrinters(ws)
 			case <-done:
