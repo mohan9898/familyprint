@@ -119,19 +119,34 @@ curl -s http://127.0.0.1:8000/api/agent-status   # 有响应即服务端正常
 <details>
 <summary>📦 二进制方式运行云端（不用 Docker）</summary>
 
+**方式一 · 启动脚本（推荐）**——变量写进脚本，之后启动只敲一条命令：
+
 ```bash
-# 1. 下载二进制（按 CPU 架构选择，一般 VPS 是 amd64；其他：arm64 / arm / darwin-* / windows）
+# 1. 下载二进制
 wget https://github.com/mohan9898/familyprint/releases/latest/download/fp-cloud-linux-amd64 -O /usr/local/bin/fp-cloud
 chmod +x /usr/local/bin/fp-cloud
 
-# 0. 前台直接运行（快速测试用；长期运行见下方 systemd）
-SECRET_KEY=请改成一段随机长字符串 \
-DEVICE_TOKEN=请设置设备token_与家庭端一致 \
-DATA_DIR=/var/lib/familyprint \
-LISTEN=127.0.0.1:8000 \
-/usr/local/bin/fp-cloud
+# 2. 创建启动脚本（改好脚本内 4 行变量即可）
+cat > /opt/start-cloud.sh <<'EOF'
+#!/bin/sh
+export SECRET_KEY=请改成一段随机长字符串      # 必改：openssl rand -hex 32 生成
+export DEVICE_TOKEN=请设置设备token_与家庭端一致   # 必改：与家庭端一致
+export DATA_DIR=/var/lib/familyprint
+export LISTEN=127.0.0.1:8000
+mkdir -p "$DATA_DIR"
+exec /usr/local/bin/fp-cloud
+EOF
+chmod +x /opt/start-cloud.sh
 
-# 2. systemd 常驻
+# 3. 启动 / 停止都只要一条命令
+/opt/start-cloud.sh                                        # 前台启动，Ctrl+C 停止
+nohup /opt/start-cloud.sh > /var/log/fp-cloud.log 2>&1 &   # 后台启动
+kill $(pgrep fp-cloud)                                     # 停止
+```
+
+**方式二 · systemd 常驻**（长期运行推荐，同样只改文件内变量）：
+
+```bash
 cat > /etc/systemd/system/fp-cloud.service <<'EOF'
 [Unit]
 Description=FamilyPrint Cloud
@@ -192,21 +207,31 @@ docker logs -f fp-agent   # 应看到 "已连接云端 wss://print.example.com/w
 | Mac | `fp-agent-darwin-amd64` / `fp-agent-darwin-arm64` |
 | Windows | `fp-agent-windows-amd64.exe` |
 
+**方式一 · 启动脚本（推荐）**——变量写进脚本，之后启动只敲一条命令：
+
 ```bash
-# 示例：ARM64 软路由
+# 1. 下载二进制（按设备架构选择，见上表）
 wget https://github.com/mohan9898/familyprint/releases/latest/download/fp-agent-linux-arm64 -O /usr/local/bin/fp-agent
 chmod +x /usr/local/bin/fp-agent
+
+# 2. 创建启动脚本（改好脚本内 3 行必改变量即可）
+cat > /opt/start-agent.sh <<'EOF'
+#!/bin/sh
+export CLOUD_URLS=wss://print.example.com/ws/agent            # 必改：云端域名
+export DEVICE_TOKEN=请设置设备token_与云端一致                  # 必改：与云端一致
+export PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print      # 必改：打印机 IPP 地址
+# export PRINT_KEY=你的家庭密钥                                 # 可选：端到端加密
+exec /usr/local/bin/fp-agent
+EOF
+chmod +x /opt/start-agent.sh
+
+# 3. 启动 / 停止都只要一条命令
+/opt/start-agent.sh                                           # 前台启动，Ctrl+C 停止
+nohup /opt/start-agent.sh > /var/log/fp-agent.log 2>&1 &      # 后台启动
+kill $(pgrep fp-agent)                                        # 停止
 ```
 
-```bash
-# 0. 前台直接运行（快速测试用；长期运行见下方 systemd/procd）
-CLOUD_URLS=wss://print.example.com/ws/agent \
-DEVICE_TOKEN=请设置设备token_与云端一致 \
-PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print \
-/usr/local/bin/fp-agent
-```
-
-**systemd 常驻**（标准 Linux / NAS）——变量已直接写入，改好 3 个「必改」值即可：
+**方式二 · systemd 常驻**（标准 Linux / NAS，长期运行推荐，同样只改文件内变量）：
 
 ```ini
 # /etc/systemd/system/fp-agent.service
