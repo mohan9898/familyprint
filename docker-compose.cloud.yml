@@ -1,13 +1,16 @@
-# 云端（VPS）—— FamilyPrint-Cloud
+# 云端（VPS）—— FamilyPrint-Cloud + Caddy 自动 HTTPS
+# 使用：修改下方 2 个「必改」值 + Caddyfile 域名，然后 docker compose -f docker-compose.cloud.yml up -d
 services:
   cloud:
-    # image: ghcr.io/你的GitHub用户名/familyprint-cloud:latest   # 推荐：直接用 GHCR 自动构建镜像
-    build: ./cloud-go           # 或本地构建
+    image: ghcr.io/mohan9898/familyprint-cloud:latest   # GHCR 公共镜像，多架构 amd64/arm64/armv7 自动匹配
+    # build: ./cloud-go                                  # 想本地构建则注释上一行、启用这一行
     container_name: fp-cloud
     restart: unless-stopped
     environment:
+      # ↓↓↓ 必改：会话密钥（openssl rand -hex 32 生成）
       - SECRET_KEY=请改成一段随机长字符串
-      - DEVICE_TOKEN=请设置设备token，与家庭端一致
+      # ↓↓↓ 必改：设备 token（与家庭端 docker-compose.agent.yml 中一致）
+      - DEVICE_TOKEN=请设置设备token_与家庭端一致
       - DATA_DIR=/app/data
       - LISTEN=:8000
     volumes:
