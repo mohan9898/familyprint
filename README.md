@@ -326,6 +326,8 @@ journalctl -u fp-cloud -f   # 应看到 "监听 :8000"
 |------|-----------|-----------|
 | x86 软路由 / NAS / VPS / 旧电脑 | `fp-agent-linux-amd64` | `fp-cloud-linux-amd64` |
 | 树莓派 4/5、ARM 盒子（N1/R2S/R4S） | `fp-agent-linux-arm64` | `fp-cloud-linux-arm64` |
+
+> 💡 `arm64` 就是 `aarch64`（同一种架构的两种叫法）。不确定设备架构时，在设备上执行 `uname -m`：输出 `aarch64` → 下载 `*-linux-arm64`；输出 `x86_64` → 下载 `*-linux-amd64`；输出 `armv7l` → 下载 `*-linux-arm`。
 | 树莓派 3、32 位 ARM | `fp-agent-linux-arm` | `fp-cloud-linux-arm` |
 | Mac（Intel / Apple Silicon） | `fp-agent-darwin-*` | `fp-cloud-darwin-*` |
 | Windows | `fp-agent-windows-amd64.exe` | `fp-cloud-windows-amd64.exe` |
