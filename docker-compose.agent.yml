@@ -1,25 +1,21 @@
-# 家庭端（软路由）v2 —— Go Agent 极简部署（无 CUPS，IPP 直连网络打印机）
-# 总内存占用 ~10MB（对比 Python+CUPS 方案 ~150MB，降低 90%+）
-# 使用：在 .env 或命令行传入变量后 docker compose -f docker-compose.agent.yml up -d
+# 家庭端（软路由/NAS）—— Go Agent，IPP 直连网络打印机，无 CUPS
+# 内存占用 ~10MB（对比 Python+CUPS 方案 ~150MB，降低 90%+）
+# 使用：直接修改下方 4 个「必改」值，然后 docker compose -f docker-compose.agent.yml up -d
 services:
   agent:
-    # image: ghcr.io/你的GitHub用户名/familyprint-agent:latest   # 推荐：GHCR 镜像（自动多架构 amd64/arm64/armv7）
-    build: ./agent-go
+    image: ghcr.io/mohan9898/familyprint-agent:latest   # GHCR 公共镜像，多架构 amd64/arm64/armv7 自动匹配
+    # build: ./agent-go                                  # 想本地构建则注释上一行、启用这一行
     container_name: fp-agent
     restart: unless-stopped
     network_mode: host          # 直接访问家庭网段内的打印机
     environment:
-      - CLOUD_URLS=${CLOUD_URLS:-wss://print.你的域名.com/ws/agent}
-      - DEVICE_TOKEN=${DEVICE_TOKEN}
-      - PRINTER_IPP_URL=${PRINTER_IPP_URL:-ipp://192.168.1.100:631/ipp/print}
-      - PRINTER_NAME=${PRINTER_NAME:-家里打印机}
+      # ↓↓↓ 必改：云端域名（与云端 Caddyfile 一致）
+      - CLOUD_URLS=wss://print.你的域名.com/ws/agent
+      # ↓↓↓ 必改：设备 token（与云端 docker-compose.cloud.yml 中一致）
+      - DEVICE_TOKEN=请设置设备token_与云端一致
+      # ↓↓↓ 必改：打印机 IPP 地址（打印机面板查看 IP）
+      - PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print
+      - PRINTER_NAME=家里打印机                # 可改：打印机显示名
       - MOCK=0
-      - PRINT_KEY=${PRINT_KEY:-}      # 端到端加密家庭密钥：设置后浏览器上传的文件加密传输，云端只见密文（可选）
-
-# 更省内存的方式（可选）：不用 Docker，直接跑二进制
-#   1. 本机或其他机器: cd agent-go && go build -o fp-agent
-#   2. 把 fp-agent 传到软路由，配 systemd：
-#      Environment=CLOUD_URLS=wss://print.你的域名.com/ws/agent
-#      Environment=DEVICE_TOKEN=xxx PRINTER_IPP_URL=ipp://打印机IP/ipp/print
-#      ExecStart=/usr/local/bin/fp-agent
-#      Restart=always
+      # 可选：端到端加密家庭密钥——填上后浏览器首次打印时输入同一密钥，云端只见密文
+      - PRINT_KEY=
