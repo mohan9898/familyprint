@@ -170,7 +170,7 @@ docker logs fp-agent
 
 > OpenWrt 装 Docker：网页管理界面 → 系统 → 软件包 → 搜索 `dockerd` 安装。
 
-#### 方式 B：二进制（不用 Docker，一条命令直接跑，和 EasyTier 用法一样）
+#### 方式 B：二进制（不用 Docker，一条命令直接跑）
 
 ```bash
 # 1. 下载（按设备选文件，对照表在附录 C）
