@@ -1,4 +1,0 @@
-# Caddyfile —— 自动 HTTPS（备案域名）
-print.你的域名.com {
-    reverse_proxy cloud:8000
-}
