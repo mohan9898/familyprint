@@ -3,18 +3,19 @@
 package main
 
 import (
-	"embed"
-	"io/fs"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
+	"embed"
 	"encoding/base64"
-	"io"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
+	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -36,6 +37,18 @@ var (
 	sessionDays = envOr("SESSION_DAYS", "30")
 	dailyLimit  = envOr("DAILY_LIMIT", "30")
 )
+
+func init() {
+	// 命令行参数（优先于环境变量），支持一条命令直接启动：
+	// fp-cloud -secret xxx -token xxx -data /var/lib/familyprint -listen 127.0.0.1:8000
+	flag.StringVar(&secretKey, "secret", secretKey, "会话密钥（COOKIE 签名）")
+	flag.StringVar(&deviceToken, "token", deviceToken, "设备 token（与家庭端一致）")
+	flag.StringVar(&dataDir, "data", dataDir, "数据目录")
+	flag.StringVar(&listenAddr, "listen", listenAddr, "监听地址")
+	flag.StringVar(&sessionDays, "session-days", sessionDays, "会话有效天数")
+	flag.StringVar(&dailyLimit, "daily-limit", dailyLimit, "每用户每日任务上限")
+	flag.Parse()
+}
 
 func envOr(k, d string) string {
 	if v := os.Getenv(k); v != "" {
