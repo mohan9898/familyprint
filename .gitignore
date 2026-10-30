@@ -1,0 +1,21 @@
+# 构建产物
+release/
+agent-go/fp-agent
+cloud-go/fp-cloud
+fp-cloud
+fp-agent
+*.exe
+
+# 运行数据（含账号数据库与上传文件，禁止入库）
+data/
+cloud-go/data/
+*.db
+*.db-wal
+*.db-shm
+
+# Go
+*.sum.tmp
+
+# 系统/编辑器
+.DS_Store
+*.log
