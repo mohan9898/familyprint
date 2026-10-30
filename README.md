@@ -35,7 +35,7 @@
 家人浏览器（微信内也可直开）
    │  HTTPS（自动证书）
    ▼
-云端 VPS：fp-cloud（Go 单二进制 + Caddy 自动 HTTPS）
+云端 VPS：fp-cloud（Go 单二进制，HTTPS 由你的反代提供）
    │  账号 · 任务队列 · 文件中转（可 E2EE 密文）
    ▲  WSS 出站长连接（家庭端主动连云端）
 家庭软路由 / NAS / 树莓派：fp-agent（Go 单二进制）
@@ -95,33 +95,24 @@ scp -r familyprint/ root@VPS_IP:/opt/familyprint
 ssh root@VPS_IP && cd /opt/familyprint
 ```
 
-编辑两个文件后启动：
-
-- `docker-compose.cloud.yml`：填入 `SECRET_KEY`、`DEVICE_TOKEN`
-- `Caddyfile`：改为你的真实域名
+编辑 `docker-compose.cloud.yml`，填入 `SECRET_KEY`、`DEVICE_TOKEN` 后启动：
 
 ```bash
 docker compose -f docker-compose.cloud.yml up -d
 
 # 验证
 docker logs fp-cloud   # 应看到 "FamilyPrint-Cloud (Go) 监听 :8000"
-docker logs fp-caddy   # 应看到证书签发成功（1-2 分钟）
+curl -s http://127.0.0.1:8000/api/agent-status   # 有响应即服务端正常
 ```
 
-打开 `https://print.example.com`，用默认管理员 `admin / admin123` 登录，**立即改密码**。
+服务端本体监听 HTTP `:8000`，**对外 HTTPS 反代请使用你自己的方案**（配置好后通过域名访问即可）。打开 `https://print.example.com`，用默认管理员 `admin / admin123` 登录，**立即改密码**。
 
 <details>
-<summary>📦 免编译方式：直接用 GHCR 镜像（推荐，VPS 上不装 Go 也能跑）</summary>
+<summary>📦 免编译方式：直接用 GHCR 镜像（默认已启用，VPS 上不装 Go 也能跑）</summary>
 
-编辑 `docker-compose.cloud.yml`：**注释掉 `build: ./cloud-go`，取消注释 `image:` 行**：
+`docker-compose.cloud.yml` 默认使用 GHCR 公共镜像，`docker compose up -d` 自动拉取对应架构镜像（amd64/arm64/armv7）。此方式 VPS 上**无需 Go 环境，甚至无需上传源码**——只需 `docker-compose.cloud.yml` 一个文件。
 
-```yaml
-  cloud:
-    image: ghcr.io/mohan9898/familyprint-cloud:latest   # ← 启用这行
-    # build: ./cloud-go                                  # ← 注释这行
-```
-
-之后 `docker compose up -d` 自动拉取对应架构镜像（amd64/arm64/armv7）。此方式 VPS 上**无需 Go 环境，甚至无需上传源码**——只需 `docker-compose.cloud.yml` 和 `Caddyfile` 两个文件。
+想本地构建：注释 `image:` 行、启用 `build: ./cloud-go` 行即可。
 
 </details>
 
@@ -142,7 +133,7 @@ After=network-online.target
 Environment=SECRET_KEY=改成随机长字符串
 Environment=DEVICE_TOKEN=改成设备token
 Environment=DATA_DIR=/var/lib/familyprint
-Environment=LISTEN=:8000
+Environment=LISTEN=127.0.0.1:8000
 ExecStart=/usr/local/bin/fp-cloud
 Restart=always
 RestartSec=5
@@ -153,7 +144,7 @@ systemctl daemon-reload && systemctl enable --now fp-cloud
 journalctl -u fp-cloud -f   # 应看到 "监听 :8000"
 ```
 
-HTTPS 交给 Caddy：`apt install caddy`，在 `Caddyfile` 写 `print.example.com { reverse_proxy 127.0.0.1:8000 }` 即自动签证书。
+之后在你的 HTTPS 反代中把域名回源到 `127.0.0.1:8000` 即可。
 
 </details>
 
@@ -265,7 +256,7 @@ chmod +x /etc/init.d/fp-agent && /etc/init.d/fp-agent enable && /etc/init.d/fp-a
 **云端 · docker-compose.cloud.yml**（VPS 上 `mkdir familyprint && cd familyprint && nano docker-compose.cloud.yml` 粘贴保存）：
 
 ```yaml
-# 云端（VPS）—— FamilyPrint-Cloud + Caddy 自动 HTTPS
+# 云端（VPS）—— FamilyPrint-Cloud 服务端（HTTP :8000，HTTPS 反代使用你自己的方案）
 services:
   cloud:
     image: ghcr.io/mohan9898/familyprint-cloud:latest   # 多架构：amd64/arm64/armv7 自动匹配
@@ -282,33 +273,13 @@ services:
     volumes:
       - cloud-data:/app/data
     ports:
-      - "127.0.0.1:8000:8000"   # 仅本机，由 Caddy 反代对外
-
-  caddy:
-    image: caddy:latest
-    container_name: fp-caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
+      - "8000:8000"   # 服务端 HTTP 端口，供外部反向代理回源使用
 
 volumes:
   cloud-data:
-  caddy-data:
 ```
 
-**云端 · Caddyfile**（同目录保存，改域名）：
-
-```
-print.example.com {
-    reverse_proxy cloud:8000
-}
-```
-
-启动：`docker compose -f docker-compose.cloud.yml up -d`
+启动：`docker compose -f docker-compose.cloud.yml up -d`，然后把你的 HTTPS 反代回源到 `服务器IP:8000` 即可。
 
 **家庭端 · docker-compose.agent.yml**（软路由上保存，变量已直接写入文件）：
 
@@ -322,7 +293,7 @@ services:
     restart: unless-stopped
     network_mode: host          # 直接访问家庭网段内的打印机
     environment:
-      # ↓↓↓ 必改：云端域名（与云端 Caddyfile 一致）
+      # ↓↓↓ 必改：云端域名（与你部署的服务端域名一致）
       - CLOUD_URLS=wss://print.example.com/ws/agent
       # ↓↓↓ 必改：设备 token（与云端 compose 文件中一致）
       - DEVICE_TOKEN=请设置设备token_与云端一致
@@ -400,7 +371,7 @@ bash restore.sh fp-backup-xxx.tar.gz # 恢复
 
 | 症状 | 原因与处理 |
 |------|-----------|
-| 网页打不开 | DNS 未生效（`ping 域名` 核对 IP）；Caddy 证书未签下（`docker logs fp-caddy`，确认 80/443 放行且域名已备案） |
+| 网页打不开 | DNS 未生效（`ping 域名` 核对 IP）；反代未配好或证书未签下（检查你的反代配置，确认 80/443 放行且域名已备案） |
 | agent 连不上云端 | 两端 token 不一致；域名写错；VPS 防火墙未放行 443 |
 | 任务一直"排队中" | agent 离线（`docker logs fp-agent`）；打印机离线 |
 | "失败：打印机连接失败" | PRINTER_IPP_URL 写错（先 curl 验证 631 端口）；打印机 IP 变了（绑定静态 IP） |
@@ -445,9 +416,8 @@ familyprint/
 ├── agent-go/                 # 家庭端：WSS 连云端 + IPP 直连打印机
 │   ├── main.go
 │   └── Dockerfile
-├── docker-compose.cloud.yml  # 云端编排（fp-cloud + Caddy）
+├── docker-compose.cloud.yml  # 云端编排（fp-cloud 服务端）
 ├── docker-compose.agent.yml  # 家庭端编排
-├── Caddyfile                 # HTTPS 反代配置
 ├── build-all.sh              # 全平台交叉编译
 ├── backup.sh / restore.sh    # 数据备份与恢复
 └── .github/workflows/        # CI + Release 自动构建发布
