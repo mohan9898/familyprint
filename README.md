@@ -8,6 +8,7 @@
 [![Release](https://img.shields.io/github/v/release/mohan9898/familyprint)](https://github.com/mohan9898/familyprint/releases)
 [![CI](https://img.shields.io/github/actions/workflow/status/mohan9898/familyprint/ci.yml?branch=main&label=CI)](https://github.com/mohan9898/familyprint/actions)
 [![Go](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Built by AI](https://img.shields.io/badge/Built_by-100%25_AI-8A2BE2)](#-纯-ai-编写声明)
 
 家人在微信/浏览器里打开网址 → 选文件 → 点打印 → 回家取件。
 **零端口映射、零公网 IP、零 DDNS**，云端全密文中转，单二进制部署。
@@ -334,6 +335,10 @@ bash build-all.sh   # 产出 release/ 目录
 ```bash
 git tag v1.0.1 && git push origin v1.0.1
 ```
+
+## 🤖 纯 AI 编写声明
+
+本项目的**全部内容——代码、架构设计、网页前端、部署配置、CI/CD 工作流与本 README——均由 AI（CodeBuddy）独立编写**，人类仅提出需求、验收成果并决定发布。项目按「需求对话 → 方案设计 → 编码实现 → 模拟运行测试 → 开源发布」的流程由 AI 全程交付，欢迎参考这一 AI 全流程开发的实践案例。
 
 ## 📄 许可证
 
