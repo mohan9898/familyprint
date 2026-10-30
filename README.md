@@ -124,6 +124,13 @@ curl -s http://127.0.0.1:8000/api/agent-status   # 有响应即服务端正常
 wget https://github.com/mohan9898/familyprint/releases/latest/download/fp-cloud-linux-amd64 -O /usr/local/bin/fp-cloud
 chmod +x /usr/local/bin/fp-cloud
 
+# 0. 前台直接运行（快速测试用；长期运行见下方 systemd）
+SECRET_KEY=请改成一段随机长字符串 \
+DEVICE_TOKEN=请设置设备token_与家庭端一致 \
+DATA_DIR=/var/lib/familyprint \
+LISTEN=127.0.0.1:8000 \
+/usr/local/bin/fp-cloud
+
 # 2. systemd 常驻
 cat > /etc/systemd/system/fp-cloud.service <<'EOF'
 [Unit]
@@ -189,6 +196,14 @@ docker logs -f fp-agent   # 应看到 "已连接云端 wss://print.example.com/w
 # 示例：ARM64 软路由
 wget https://github.com/mohan9898/familyprint/releases/latest/download/fp-agent-linux-arm64 -O /usr/local/bin/fp-agent
 chmod +x /usr/local/bin/fp-agent
+```
+
+```bash
+# 0. 前台直接运行（快速测试用；长期运行见下方 systemd/procd）
+CLOUD_URLS=wss://print.example.com/ws/agent \
+DEVICE_TOKEN=请设置设备token_与云端一致 \
+PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print \
+/usr/local/bin/fp-agent
 ```
 
 **systemd 常驻**（标准 Linux / NAS）——变量已直接写入，改好 3 个「必改」值即可：
