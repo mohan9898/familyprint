@@ -273,8 +273,10 @@ services:
     container_name: fp-cloud
     restart: unless-stopped
     environment:
-      - SECRET_KEY=改成一段随机长字符串          # openssl rand -hex 32
-      - DEVICE_TOKEN=改成设备token_与家庭端一致   # openssl rand -hex 32
+      # ↓↓↓ 必改：会话密钥（openssl rand -hex 32 生成）
+      - SECRET_KEY=请改成一段随机长字符串
+      # ↓↓↓ 必改：设备 token（与家庭端 compose 文件中一致）
+      - DEVICE_TOKEN=请设置设备token_与家庭端一致
       - DATA_DIR=/app/data
       - LISTEN=:8000
     volumes:
