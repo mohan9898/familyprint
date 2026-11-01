@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -39,6 +38,9 @@ var (
 	jobTimeout  = envOr("JOB_TIMEOUT_MIN", "5") // 单个任务"打印中"最长容忍分钟数
 )
 
+// buildVersion：构建期注入，未注入时为 dev（CI 用 -ldflags "-X main.buildVersion=..." 写入）
+var buildVersion = "dev"
+
 // 启动安全检查：占位值会让会话签名 / Agent 接入形同虚设。
 // 本地调试（监听 127.0.0.1）放行，对外监听则直接拒绝启动，避免带病上线。
 func checkSecrets() {
@@ -52,20 +54,22 @@ func checkSecrets() {
 		problems = append(problems, "DEVICE_TOKEN / -token 仍为默认值（任何人都能冒充家庭端接入）")
 	}
 	if len(problems) == 0 {
+		logDebug("启动配置校验通过")
 		return
 	}
 	local := strings.HasPrefix(listenAddr, "127.0.0.1") || strings.HasPrefix(listenAddr, "localhost")
 	if local {
 		for _, p := range problems {
-			log.Printf("⚠️  注意: %s", p)
+			logWarn("%s", p)
 		}
-		log.Println("⚠️  当前仅监听本机地址，按调试模式放行；上线前务必修正以上配置")
+		logWarn("当前仅监听本机地址，按调试模式放行；上线前务必修正以上配置")
 		return
 	}
 	for _, p := range problems {
-		log.Printf("❌ %s", p)
+		logError("%s", p)
 	}
-	log.Fatal("启动中止：安全配置不完整。请设置后再启动（仅本地调试可监听 127.0.0.1）")
+	logError("启动中止：安全配置不完整。请设置后再启动（仅本地调试可监听 127.0.0.1）")
+	os.Exit(1)
 }
 
 func init() {
@@ -105,11 +109,15 @@ var staticFS embed.FS
 
 func initDB() {
 	uploadsDir = filepath.Join(dataDir, "uploads")
-	os.MkdirAll(uploadsDir, 0700)
+	if err := os.MkdirAll(uploadsDir, 0700); err != nil {
+		logError("创建数据目录失败: %v（检查目录权限/磁盘是否只读）", err)
+		os.Exit(1)
+	}
 	var err error
 	db, err = sql.Open("sqlite", filepath.Join(dataDir, "app.db")+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
 	if err != nil {
-		log.Fatal(err)
+		logError("打开数据库失败: %v", err)
+		os.Exit(1)
 	}
 	schema := `
 	CREATE TABLE IF NOT EXISTS users(
@@ -127,23 +135,33 @@ func initDB() {
 	CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY, v TEXT);
 	`
 	if _, err := db.Exec(schema); err != nil {
-		log.Fatal(err)
+		logError("建表失败: %v（数据文件可能损坏，先备份 data/ 再排查）", err)
+		os.Exit(1)
 	}
 	// 老库升级：补齐新增列（已存在则忽略错误）
+	added := 0
 	for _, ddl := range []string{
 		"ALTER TABLE users ADD COLUMN disabled INTEGER DEFAULT 0",
 		"ALTER TABLE users ADD COLUMN last_login REAL DEFAULT 0",
 		"ALTER TABLE users ADD COLUMN created_at REAL DEFAULT 0",
 		"ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 0",
 	} {
-		db.Exec(ddl)
+		if _, err := db.Exec(ddl); err == nil {
+			added++
+		}
 	}
+	if added > 0 {
+		logInfo("数据库结构已升级，补齐 %d 个字段（老数据已保留）", added)
+	}
+	initAuditTable()
 	var n int
 	db.QueryRow("SELECT COUNT(*) FROM users").Scan(&n)
 	if n == 0 {
 		db.Exec("INSERT INTO users(username,password_hash,display_name,is_admin,created_at) VALUES(?,?,?,1,?)",
 			"admin", hashPW("admin123", ""), "管理员", float64(time.Now().Unix()))
-		log.Println("已创建默认管理员 admin/admin123（请尽快修改）")
+		logWarn("已创建默认管理员 admin / admin123 —— 请登录后立即修改密码")
+	} else {
+		logDebug("账号数据就绪: %d 个账号", n)
 	}
 }
 
@@ -338,21 +356,44 @@ func dispatchQueued() {
 		jobs = append(jobs, x)
 	}
 	rows.Close()
+	if len(jobs) == 0 {
+		return
+	}
+	logInfo("家庭端上线，补发 %d 条排队任务", len(jobs))
 	for _, job := range jobs {
 		data, err := os.ReadFile(job.Path)
 		if err != nil {
-			data = []byte{}
+			// 文件已丢失（被手工删除/磁盘问题）：直接判失败，别让用户在"打印中"里干等
+			logError("任务 #%d 文件读取失败: %v，判定为失败", job.ID, err)
+			onAgentStatus(job.ID, "failed", "任务文件已丢失，请重新上传打印")
+			continue
 		}
-		sendToAgent(map[string]interface{}{
+		ok := sendToAgent(map[string]interface{}{
 			"type": "job", "job_id": job.ID, "filename": job.Name,
 			"data": base64.StdEncoding.EncodeToString(data),
 			"params": map[string]interface{}{
 				"copies": job.Copies, "color": job.Color, "sides": job.Sides, "paper": job.Paper}})
+		if ok {
+			logInfo("任务 #%d 已下发: %s（%dKB）", job.ID, job.Name, len(data)/1024)
+		} else {
+			logWarn("任务 #%d 下发失败（连接刚断开），等下次上线重试", job.ID)
+		}
 	}
 }
 
 func onAgentStatus(jobID int64, status, errMsg string) {
+	var name, old string
+	db.QueryRow("SELECT COALESCE(orig_name,''), COALESCE(status,'') FROM print_jobs WHERE id=?", jobID).
+		Scan(&name, &old)
 	db.Exec("UPDATE print_jobs SET status=?, error=?, updated_at=? WHERE id=?", status, errMsg, time.Now().Unix(), jobID)
+	switch status {
+	case "completed":
+		logInfo("任务 #%d 打印完成: %s", jobID, name)
+	case "failed":
+		logError("任务 #%d 打印失败: %s — 原因: %s", jobID, name, errMsg)
+	case "processing":
+		logDebug("任务 #%d 进入打印队列: %s", jobID, name)
+	}
 	// 打印完成或失败：立即删除云端文件，密文/明文都不留
 	if status == "completed" || status == "failed" {
 		var path string
@@ -397,7 +438,8 @@ func requeueStaleProcessing(timeout time.Duration) int {
 				if s.path != "" {
 					os.Remove(s.path)
 				}
-				log.Printf("任务 #%d 因家庭端离线超时，已标记失败", s.id)
+				logWarn("任务 #%d 因家庭端离线 %s 无进展，已判失败（家庭端已离线 %s）",
+					s.id, timeout, offlineFor.Round(time.Second))
 			}
 			return len(list)
 		}
@@ -422,7 +464,8 @@ func requeueStaleProcessing(timeout time.Duration) int {
 	for _, id := range ids {
 		db.Exec(`UPDATE print_jobs SET error=? WHERE id=? AND status='processing'`,
 			"似乎卡住了，请到打印机旁确认是否已出纸", id)
-		log.Printf("任务 #%d 打印超时（%v 无进展），已标注提示", id, 3*timeout)
+		logWarn("任务 #%d 打印已 %s 无进展（家庭端在线），已标注「疑似卡住」提示用户去打印机确认",
+			id, (3 * timeout))
 	}
 	return len(ids)
 }
@@ -434,32 +477,40 @@ func wsAgent(w http.ResponseWriter, r *http.Request) {
 		tok = r.URL.Query().Get("token")
 	}
 	if subtle.ConstantTimeCompare([]byte(tok), []byte(deviceToken)) != 1 {
-		log.Printf("⚠️ 拒绝非法 Agent 接入: remote=%s", r.RemoteAddr)
+		logWarn("[%s] 拒绝家庭端接入：设备 token 不匹配（ip=%s，请核对两端 DEVICE_TOKEN 是否一致）",
+			ridOf(r), maskIP(clientIP(r)))
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	up := websocket.Upgrader{}
+	up := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	conn, err := up.Upgrade(w, r, nil)
 	if err != nil {
+		logWarn("[%s] 家庭端 WebSocket 握手失败: %v", ridOf(r), err)
 		return
 	}
 	agentMu.Lock()
+	replaced := agentConn != nil
 	if old := agentConn; old != nil {
 		old.Close() // 单设备模式：新连接顶替旧连接，防止幽灵连接
 	}
 	agentConn = conn
 	agentLastAt = time.Now()
 	agentMu.Unlock()
-	log.Printf("Agent 已连接: remote=%s", r.RemoteAddr)
+	if replaced {
+		logWarn("[%s] 家庭端重复连接：旧连接已被新连接顶替（ip=%s）", ridOf(r), maskIP(clientIP(r)))
+	} else {
+		logInfo("家庭端已连接：ip=%s", maskIP(clientIP(r)))
+	}
 	defer func() {
 		agentMu.Lock()
-		if agentConn == conn {
+		still := agentConn == conn
+		if still {
 			agentConn = nil
 			agentLastAt = time.Now() // 记下离线时刻，供超时回收判断
 		}
 		agentMu.Unlock()
 		conn.Close()
-		log.Println("Agent 断开")
+		logInfo("家庭端已断开%s", map[bool]string{true: "（期间有新连接顶替）", false: ""}[!still])
 	}()
 
 	dispatchQueued()
@@ -476,7 +527,12 @@ func wsAgent(w http.ResponseWriter, r *http.Request) {
 			} `json:"list"`
 		}
 		if err := conn.ReadJSON(&msg); err != nil {
-			log.Printf("Agent 连接读取错误: %v", err)
+			// 正常断线（浏览器/网络关闭）不打错误，仅 debug；真正的异常才 warn
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				logWarn("家庭端连接异常中断: %v", err)
+			} else {
+				logDebug("家庭端连接读取结束: %v", err)
+			}
 			return
 		}
 		switch msg.Type {
@@ -485,6 +541,16 @@ func wsAgent(w http.ResponseWriter, r *http.Request) {
 		case "printers":
 			db.Exec("CREATE TABLE IF NOT EXISTS printers(name TEXT PRIMARY KEY, status TEXT)")
 			for _, p := range msg.List {
+				// 只在上报状态发生变化时打日志，避免每 30 秒刷一条
+				var prev string
+				db.QueryRow("SELECT status FROM printers WHERE name=?", p.Name).Scan(&prev)
+				if prev != p.Status {
+					if p.Status == "offline" {
+						logWarn("打印机「%s」离线（检查打印机电源/WiFi/IP 是否变化）", p.Name)
+					} else {
+						logInfo("打印机「%s」在线", p.Name)
+					}
+				}
 				db.Exec("INSERT OR REPLACE INTO printers(name,status) VALUES(?,?)", p.Name, p.Status)
 			}
 		}
@@ -535,14 +601,18 @@ func apiLogin(w http.ResponseWriter, r *http.Request) {
 			strings.TrimSpace(body.Username)).Scan(&id, &hash, &disp, &admin, &failed, &locked, &disabled, &tokenVer)
 	}
 	if err != nil {
+		logReq(r, lvWarn, "登录失败: 用户名 %q 不存在（ip=%s）", uname, maskIP(clientIP(r)))
 		jsonErr(w, 401, "用户名或密码错误")
 		return
 	}
 	if disabled == 1 {
+		logReq(r, lvWarn, "登录被拒: %q 账号已停用（ip=%s）", uname, maskIP(clientIP(r)))
 		jsonErr(w, 403, "该账号已被管理员停用")
 		return
 	}
 	if locked > float64(time.Now().Unix()) {
+		logReq(r, lvWarn, "登录被拒: %q 处于锁定中，剩余 %d 分钟（ip=%s）",
+			uname, int((locked-float64(time.Now().Unix()))/60)+1, maskIP(clientIP(r)))
 		jsonErr(w, 429, "失败次数过多，请 10 分钟后再试")
 		return
 	}
@@ -551,6 +621,11 @@ func apiLogin(w http.ResponseWriter, r *http.Request) {
 		newLocked := 0.0
 		if failed >= 5 {
 			newLocked = float64(time.Now().Add(10 * time.Minute).Unix())
+			logReq(r, lvWarn, "登录失败: %q 密码错误 %d 次，已锁定 10 分钟（ip=%s）",
+				uname, failed, maskIP(clientIP(r)))
+		} else {
+			logReq(r, lvWarn, "登录失败: %q 密码错误（第 %d/5 次，ip=%s）",
+				uname, failed, maskIP(clientIP(r)))
 		}
 		db.Exec("UPDATE users SET failed=?, locked_until=? WHERE id=?", failed, newLocked, id)
 		jsonErr(w, 401, "用户名或密码错误")
@@ -562,11 +637,16 @@ func apiLogin(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name: "fp_session", Value: makeToken(id, tokenVer), Path: "/",
 		MaxAge: days * 86400, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: true})
+	logReq(r, lvInfo, "登录成功: %q（id=%d，管理员=%v，记住 %d 天，ip=%s）",
+		uname, id, admin == 1, days, maskIP(clientIP(r)))
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"id": id, "username": uname, "display_name": disp, "is_admin": admin})
 }
 
 func apiLogout(w http.ResponseWriter, r *http.Request) {
+	if u := currentUser(r); u != nil {
+		logReq(r, lvInfo, "退出登录: %q", u.Username)
+	}
 	http.SetCookie(w, &http.Cookie{Name: "fp_session", Value: "", Path: "/", MaxAge: -1})
 	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 }
@@ -614,11 +694,13 @@ func apiCreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 52<<20)
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		logReq(r, lvWarn, "上传被拒: 表单解析失败（可能超过 50MB 上限）: %v", err)
 		jsonErr(w, 400, "文件超过 50MB 上限")
 		return
 	}
 	file, hdr, err := r.FormFile("file")
 	if err != nil {
+		logReq(r, lvWarn, "上传被拒: 请求里没有文件")
 		jsonErr(w, 400, "缺少文件")
 		return
 	}
@@ -639,10 +721,12 @@ func apiCreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	ext := strings.ToLower(filepath.Ext(origName))
 	if !allowedExt[ext] {
+		logReq(r, lvWarn, "上传被拒: 不支持的类型 %q（文件 %q）", ext, origName)
 		jsonErr(w, 400, "不支持的文件类型，仅支持：.docx, .jpg, .jpeg, .pdf, .png, .txt")
 		return
 	}
 	if ext == ".enc" && !effAllowE2EE() {
+		logReq(r, lvWarn, "上传被拒: %q 要求端到端加密，但管理员已关闭该功能", u.Username)
 		jsonErr(w, 400, "管理员已关闭端到端加密上传，请关闭加密后重试")
 		return
 	}
@@ -671,6 +755,7 @@ func apiCreateJob(w http.ResponseWriter, r *http.Request) {
 	var n int
 	db.QueryRow("SELECT COUNT(*) FROM print_jobs WHERE user_id=? AND created_at>?", u.ID, float64(time.Now().Add(-24*time.Hour).Unix())).Scan(&n)
 	if n >= limit {
+		logReq(r, lvWarn, "上传被拒: %q 已达今日上限 %d 个任务", u.Username, limit)
 		jsonErr(w, 429, "已达今日打印次数上限")
 		return
 	}
@@ -679,6 +764,7 @@ func apiCreateJob(w http.ResponseWriter, r *http.Request) {
 	fpath := filepath.Join(uploadsDir, hex.EncodeToString(rnd)+ext)
 	out, err := os.Create(fpath)
 	if err != nil {
+		logReq(r, lvError, "任务保存失败（落盘出错）: %v", err)
 		jsonErr(w, 500, "存储失败")
 		return
 	}
@@ -686,6 +772,7 @@ func apiCreateJob(w http.ResponseWriter, r *http.Request) {
 	out.Close()
 	if size > 50<<20 {
 		os.Remove(fpath)
+		logReq(r, lvWarn, "上传被拒: 文件 %q 实际 %dMB，超过 50MB", origName, size/1048576)
 		jsonErr(w, 400, "文件超过 50MB 上限")
 		return
 	}
@@ -694,6 +781,7 @@ func apiCreateJob(w http.ResponseWriter, r *http.Request) {
 		u.ID, fpath, origName, printer, copies, color, sides, paper, now, now)
 	if err != nil {
 		os.Remove(fpath)
+		logReq(r, lvError, "任务入库失败: %v", err)
 		jsonErr(w, 500, "任务创建失败")
 		return
 	}
@@ -704,6 +792,14 @@ func apiCreateJob(w http.ResponseWriter, r *http.Request) {
 		"data": base64.StdEncoding.EncodeToString(data),
 		"params": map[string]interface{}{
 			"copies": copies, "color": color, "sides": sides, "paper": paper}})
+	// 用户侧"提交"日志：谁、什么文件、多大、几份、是否即时下发
+	logReq(r, lvInfo, "新任务 #%d: %q 用户=%q %dKB %d份 %s %s 即时下发=%v",
+		jid, origName, u.Username, size/1024, copies,
+		map[int]string{1: "彩色", 0: "黑白"}[color],
+		map[bool]string{true: "双面", false: "单面"}[sides == "two-sided"], sent)
+	if !sent {
+		logReq(r, lvInfo, "任务 #%d 已排队，等家庭端上线后自动下发", jid)
+	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"id": jid, "status": "queued", "agent_online": sent})
 }
 
@@ -714,6 +810,7 @@ func apiListJobs(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := db.Query("SELECT id,orig_name,printer_name,copies,color,sides,paper,status,COALESCE(error,''),created_at FROM print_jobs WHERE user_id=? ORDER BY id DESC LIMIT 50", u.ID)
 	if err != nil {
+		logReq(r, lvError, "查询打印记录失败: %v", err)
 		jsonErr(w, 500, "查询失败")
 		return
 	}
@@ -743,12 +840,14 @@ func apiCancelJob(w http.ResponseWriter, r *http.Request) {
 	var status, fpath string
 	err := db.QueryRow("SELECT status, file_path FROM print_jobs WHERE id=? AND user_id=?", jid, u.ID).Scan(&status, &fpath)
 	if err != nil || status != "queued" {
+		logReq(r, lvWarn, "取消任务 #%d 被拒: 当前状态 %q（仅排队中可取消）", jid, status)
 		jsonErr(w, 400, "仅排队中的任务可取消")
 		return
 	}
 	db.Exec("UPDATE print_jobs SET status='canceled', updated_at=? WHERE id=?", float64(time.Now().Unix()), jid)
 	os.Remove(fpath)
 	sendToAgent(map[string]interface{}{"type": "cancel", "job_id": jid})
+	logReq(r, lvInfo, "用户 %q 取消任务 #%d", u.Username, jid)
 	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 }
 
@@ -771,6 +870,7 @@ func requireAdmin(w http.ResponseWriter, r *http.Request) *user {
 		return nil
 	}
 	if u.IsAdmin != 1 {
+		logReq(r, lvWarn, "越权访问被拒: 用户 %q 尝试访问管理员接口 %s", u.Username, r.URL.Path)
 		jsonErr(w, 403, "需要管理员权限")
 		return nil
 	}
@@ -811,7 +911,8 @@ func apiAdminUsers(w http.ResponseWriter, r *http.Request) {
 
 // 新增成员
 func apiAdminCreateUser(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	me := requireAdmin(w, r)
+	if me == nil {
 		return
 	}
 	var body struct {
@@ -853,12 +954,15 @@ func apiAdminCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, _ := res.LastInsertId()
+	audit(r, me.ID, me.Username, "新增成员", uname,
+		fmt.Sprintf("显示名=%q 管理员=%v", strings.TrimSpace(body.DisplayName), isAdmin == 1))
 	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "id": id})
 }
 
 // 重置密码：同时递增 token_version，让该用户所有已登录设备立即失效
 func apiAdminResetPW(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	me := requireAdmin(w, r)
+	if me == nil {
 		return
 	}
 	var uid int64
@@ -878,6 +982,9 @@ func apiAdminResetPW(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, 404, "用户不存在")
 		return
 	}
+	var target string
+	db.QueryRow("SELECT username FROM users WHERE id=?", uid).Scan(&target)
+	audit(r, me.ID, me.Username, "重置密码", target, "该用户所有已登录设备立即失效")
 	jsonOK(w)
 }
 
@@ -923,9 +1030,13 @@ func apiAdminToggleUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if _, err := db.Exec("UPDATE users SET disabled=? WHERE id=?", v, uid); err != nil {
+		logReq(r, lvError, "停用/启用成员失败: %v", err)
 		jsonErr(w, 500, "操作失败")
 		return
 	}
+	var target string
+	db.QueryRow("SELECT username FROM users WHERE id=?", uid).Scan(&target)
+	audit(r, me.ID, me.Username, map[int]string{1: "停用成员", 0: "启用成员"}[v], target, "")
 	jsonOK(w)
 }
 
@@ -966,10 +1077,14 @@ func apiAdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	db.Exec("DELETE FROM print_jobs WHERE user_id=?", uid)
+	var target string
+	db.QueryRow("SELECT username FROM users WHERE id=?", uid).Scan(&target)
 	if _, err := db.Exec("DELETE FROM users WHERE id=?", uid); err != nil {
+		logReq(r, lvError, "删除成员失败: %v", err)
 		jsonErr(w, 500, "删除失败")
 		return
 	}
+	audit(r, me.ID, me.Username, "删除成员", target, "已连带清理其打印记录与文件")
 	jsonOK(w)
 }
 
@@ -1035,16 +1150,23 @@ func apiAdminAgent(w http.ResponseWriter, r *http.Request) {
 
 // 强制断开局域网设备连接（家庭端会自动重连）
 func apiAdminKickAgent(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	me := requireAdmin(w, r)
+	if me == nil {
 		return
 	}
 	agentMu.Lock()
+	had := agentConn != nil
 	if agentConn != nil {
 		agentConn.Close()
 		agentConn = nil
 		agentLastAt = time.Now()
 	}
 	agentMu.Unlock()
+	if had {
+		audit(r, me.ID, me.Username, "强制断开家庭端", "agent", "家庭端将在 30 秒内自动重连")
+	} else {
+		logReq(r, lvWarn, "管理员请求断开家庭端，但当前本来就未连接")
+	}
 	jsonOK(w)
 }
 
@@ -1060,7 +1182,8 @@ func apiAdminGetSettings(w http.ResponseWriter, r *http.Request) {
 
 // 保存系统设置
 func apiAdminPutSettings(w http.ResponseWriter, r *http.Request) {
-	if requireAdmin(w, r) == nil {
+	me := requireAdmin(w, r)
+	if me == nil {
 		return
 	}
 	var body struct {
@@ -1069,6 +1192,9 @@ func apiAdminPutSettings(w http.ResponseWriter, r *http.Request) {
 		AllowE2EE   *bool `json:"allow_e2ee"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
+	before := fmt.Sprintf("每日%s/会话%s天/加密%s",
+		strconv.Itoa(effDailyLimit()), strconv.Itoa(effSessionDays()),
+		map[bool]string{true: "开", false: "关"}[effAllowE2EE()])
 	if body.DailyLimit != nil {
 		if *body.DailyLimit < 1 || *body.DailyLimit > 999 {
 			jsonErr(w, 400, "每日上限需在 1-999 之间")
@@ -1090,20 +1216,44 @@ func apiAdminPutSettings(w http.ResponseWriter, r *http.Request) {
 			setSetting("allow_e2ee", "0")
 		}
 	}
+	after := fmt.Sprintf("每日%s/会话%s天/加密%s",
+		strconv.Itoa(effDailyLimit()), strconv.Itoa(effSessionDays()),
+		map[bool]string{true: "开", false: "关"}[effAllowE2EE()])
+	if before != after {
+		audit(r, me.ID, me.Username, "修改系统设置", "settings", before+" → "+after)
+	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok": true, "daily_limit": effDailyLimit(), "session_days": effSessionDays(),
 		"allow_e2ee": effAllowE2EE()})
+}
+
+// 审计日志查询（管理后台「记录」页展示最近操作）
+func apiAdminAudit(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	json.NewEncoder(w).Encode(loadAudit(limit))
 }
 
 // 后台看护循环：
 //   - 每 20 秒回收卡死的 processing 任务（默认超时 5 分钟，可用 -job-timeout 调整）
 //   - 每小时清理完成/取消超 24h 的残留文件
 func cleanupLoop() {
+	// 每小时清理完成/取消超 24h 的残留文件 + 清理 90 天前审计日志
+	go func() {
+		for {
+			time.Sleep(time.Hour)
+			pruneAudit()
+		}
+	}()
 	go func() {
 		tick := time.NewTicker(20 * time.Second)
 		defer tick.Stop()
 		for range tick.C {
-			requeueStaleProcessing(effJobTimeout())
+			if n := requeueStaleProcessing(effJobTimeout()); n > 0 {
+				logDebug("本轮回收卡死任务 %d 条", n)
+			}
 		}
 	}()
 	for {
@@ -1112,6 +1262,7 @@ func cleanupLoop() {
 			WHERE status IN ('completed','canceled','failed') AND coalesce(purged,0)=0 AND updated_at<?`,
 			float64(time.Now().Add(-24*time.Hour).Unix()))
 		if err != nil {
+			logError("清理残留文件失败: %v", err)
 			continue
 		}
 		var paths []string
@@ -1128,13 +1279,19 @@ func cleanupLoop() {
 		}
 		db.Exec(`UPDATE print_jobs SET purged=1 WHERE status IN ('completed','canceled','failed')
 			AND coalesce(purged,0)=0 AND updated_at<?`, float64(time.Now().Add(-24*time.Hour).Unix()))
+		if len(paths) > 0 {
+			logInfo("清理 24 小时前的残留文件 %d 个", len(paths))
+		}
 	}
 }
 
 func main() {
+	initLogLevel()
 	checkSecrets()
 	initDB()
 	go cleanupLoop()
+	logSelfCheck()
+	logStartupBanner()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/login", apiLogin)
@@ -1154,12 +1311,27 @@ func main() {
 	mux.HandleFunc("GET /api/admin/jobs", apiAdminJobs)
 	mux.HandleFunc("GET /api/admin/agent", apiAdminAgent)
 	mux.HandleFunc("POST /api/admin/agent/kick", apiAdminKickAgent)
+	mux.HandleFunc("GET /api/admin/audit", apiAdminAudit)
+	mux.HandleFunc("GET /api/healthz", func(w http.ResponseWriter, r *http.Request) {
+		// 健康检查：反代/监控用，不打业务日志（中间件里静态路径已降级）
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		io.WriteString(w, "ok\n")
+	})
 	mux.HandleFunc("GET /api/admin/settings", apiAdminGetSettings)
 	mux.HandleFunc("PUT /api/admin/settings", apiAdminPutSettings)
 	mux.HandleFunc("/ws/agent", wsAgent)
 	staticSub, _ := fs.Sub(staticFS, "static")
 	mux.Handle("/", http.FileServer(http.FS(staticSub)))
 
-	log.Printf("FamilyPrint-Cloud (Go) 监听 %s", listenAddr)
-	log.Fatal(http.ListenAndServe(listenAddr, mux))
+	srv := &http.Server{
+		Addr:              listenAddr,
+		Handler:           withLog(mux), // 全局访问日志 + 请求 ID
+		ReadHeaderTimeout: 15 * time.Second,
+	}
+	logInfo("开始监听 %s（Ctrl+C 停止）", listenAddr)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logError("监听 %s 失败: %v（端口被占用？权限不足？）", listenAddr, err)
+		os.Exit(1)
+	}
+	logInfo("服务已停止")
 }
