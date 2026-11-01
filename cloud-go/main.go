@@ -39,6 +39,35 @@ var (
 	jobTimeout  = envOr("JOB_TIMEOUT_MIN", "5") // 单个任务"打印中"最长容忍分钟数
 )
 
+// 启动安全检查：占位值会让会话签名 / Agent 接入形同虚设。
+// 本地调试（监听 127.0.0.1）放行，对外监听则直接拒绝启动，避免带病上线。
+func checkSecrets() {
+	var problems []string
+	if strings.TrimSpace(secretKey) == "" {
+		problems = append(problems, "SECRET_KEY / -secret 未设置（会话 Cookie 将无法安全签名）")
+	} else if len(secretKey) < 16 {
+		problems = append(problems, "SECRET_KEY / -secret 太短（建议 32 位以上：openssl rand -hex 32）")
+	}
+	if strings.TrimSpace(deviceToken) == "" || deviceToken == "change-me-device-token" {
+		problems = append(problems, "DEVICE_TOKEN / -token 仍为默认值（任何人都能冒充家庭端接入）")
+	}
+	if len(problems) == 0 {
+		return
+	}
+	local := strings.HasPrefix(listenAddr, "127.0.0.1") || strings.HasPrefix(listenAddr, "localhost")
+	if local {
+		for _, p := range problems {
+			log.Printf("⚠️  注意: %s", p)
+		}
+		log.Println("⚠️  当前仅监听本机地址，按调试模式放行；上线前务必修正以上配置")
+		return
+	}
+	for _, p := range problems {
+		log.Printf("❌ %s", p)
+	}
+	log.Fatal("启动中止：安全配置不完整。请设置后再启动（仅本地调试可监听 127.0.0.1）")
+}
+
 func init() {
 	// 命令行参数（优先于环境变量），支持一条命令直接启动：
 	// fp-cloud -secret xxx -token xxx -data /var/lib/familyprint -listen 127.0.0.1:8000
@@ -1103,6 +1132,7 @@ func cleanupLoop() {
 }
 
 func main() {
+	checkSecrets()
 	initDB()
 	go cleanupLoop()
 
