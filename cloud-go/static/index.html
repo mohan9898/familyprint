@@ -212,6 +212,11 @@ a{cursor:pointer}
         <div class="sec-head"><h3>全部打印记录</h3><button class="btn btn-ghost" onclick="loadAdminJobs()">刷新</button></div>
         <div id="adminJobs"><p class="empty">加载中…</p></div>
       </div>
+      <div class="card">
+        <div class="sec-head"><h3>管理操作日志</h3><button class="btn btn-ghost" onclick="loadAudit()">刷新</button></div>
+        <p style="font-size:12px;color:var(--t3);line-height:1.7;margin-bottom:10px">谁在什么时候做了什么改动。保留最近 90 天。</p>
+        <div id="auditList"><p class="empty">加载中…</p></div>
+      </div>
     </div>
 
     <!-- 设备 -->
@@ -398,7 +403,7 @@ function closeAdmin(){show("main");loadJobs()}
 function switchPane(p){
   document.querySelectorAll("#adminTabs button").forEach(b=>b.classList.toggle("on",b.dataset.p==p));
   document.querySelectorAll(".pane").forEach(el=>el.classList.toggle("on",el.id=="pane-"+p));
-  if(p=="j")loadAdminJobs();
+  if(p=="j"){loadAdminJobs();loadAudit()}
   if(p=="d")loadAdminAgent();
   if(p=="s")loadSettings();
 }
@@ -478,7 +483,20 @@ async function loadAdminJobs(){
         <div class="usr-meta"><span class="who">${esc(j.username)}</span> · ${esc(j.created_at)} · ${j.copies}份 · ${j.color?"彩色":"黑白"}</div>
       </div><span class="badge ${{queued:"q",processing:"p",completed:"c",canceled:"x",failed:"x"}[j.status]||"q"}">${TXT[j.status]||esc(j.status)}</span></div>`
     ).join(""):"<p class='empty'>还没有打印记录</p>";
-  }catch(e){$("adminJobs").innerHTML="<p class='empty'>"+(e.message||"加载失败")+"</p>"}
+  }catch(e){$("adminJobs").innerHTML="<p class='empty'>"+esc(e.message||"加载失败")+"</p>"}
+}
+
+// 管理操作日志（审计）：谁改了什么，事后可追溯
+async function loadAudit(){
+  try{
+    const list=await api("/api/admin/audit?limit=100");
+    $("auditList").innerHTML=list.length?list.map(a=>
+      `<div class="jobline"><div style="min-width:0">
+        <div style="font-weight:600">${esc(a.action)}${a.target?" · "+esc(a.target):""}</div>
+        <div class="usr-meta"><span class="who">${esc(a.actor)}</span> · ${esc(a.time)}${a.detail?" · "+esc(a.detail):""}${a.ip?" · "+esc(a.ip):""}</div>
+      </div></div>`
+    ).join(""):"<p class='empty'>还没有管理操作记录</p>";
+  }catch(e){$("auditList").innerHTML="<p class='empty'>"+esc(e.message||"加载失败")+"</p>"}
 }
 
 async function loadAdminAgent(){
