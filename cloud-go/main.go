@@ -36,6 +36,7 @@ var (
 	listenAddr  = envOr("LISTEN", ":8000")
 	sessionDays = envOr("SESSION_DAYS", "30")
 	dailyLimit  = envOr("DAILY_LIMIT", "30")
+	jobTimeout  = envOr("JOB_TIMEOUT_MIN", "5") // 单个任务"打印中"最长容忍分钟数
 )
 
 func init() {
@@ -47,7 +48,17 @@ func init() {
 	flag.StringVar(&listenAddr, "listen", listenAddr, "监听地址")
 	flag.StringVar(&sessionDays, "session-days", sessionDays, "会话有效天数")
 	flag.StringVar(&dailyLimit, "daily-limit", dailyLimit, "每用户每日任务上限")
+	flag.StringVar(&jobTimeout, "job-timeout", jobTimeout, "任务打印超时分钟数（超时判失败）")
 	flag.Parse()
+}
+
+// effJobTimeout：任务卡在"打印中"超过该时长即判失败（默认 5 分钟）
+func effJobTimeout() time.Duration {
+	n, err := strconv.Atoi(jobTimeout)
+	if err != nil || n < 1 {
+		n = 5
+	}
+	return time.Duration(n) * time.Minute
 }
 
 func envOr(k, d string) string {
@@ -76,7 +87,8 @@ func initDB() {
 	  id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL,
 	  password_hash TEXT NOT NULL, display_name TEXT, is_admin INTEGER DEFAULT 0,
 	  failed INTEGER DEFAULT 0, locked_until REAL DEFAULT 0,
-	  disabled INTEGER DEFAULT 0, last_login REAL DEFAULT 0, created_at REAL DEFAULT 0);
+	  disabled INTEGER DEFAULT 0, last_login REAL DEFAULT 0, created_at REAL DEFAULT 0,
+	  token_version INTEGER DEFAULT 0);
 	CREATE TABLE IF NOT EXISTS print_jobs(
 	  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
 	  file_path TEXT NOT NULL, orig_name TEXT NOT NULL, printer_name TEXT NOT NULL,
@@ -93,6 +105,7 @@ func initDB() {
 		"ALTER TABLE users ADD COLUMN disabled INTEGER DEFAULT 0",
 		"ALTER TABLE users ADD COLUMN last_login REAL DEFAULT 0",
 		"ALTER TABLE users ADD COLUMN created_at REAL DEFAULT 0",
+		"ALTER TABLE users ADD COLUMN token_version INTEGER DEFAULT 0",
 	} {
 		db.Exec(ddl)
 	}
@@ -183,30 +196,42 @@ func checkPW(pw, stored string) bool {
 	return subtle.ConstantTimeCompare([]byte(hashPW(pw, parts[0])), []byte(stored)) == 1
 }
 
-// ---------- 会话（签名 Cookie，兼容 Python 版格式 uid.exp.sig）----------
-func makeToken(uid int64) string {
+// ---------- 会话（签名 Cookie：uid.exp.ver.sig）----------
+// ver 为该用户的 token_version，改密码/被管理员强制下线时递增，旧 Cookie 立即失效。
+// 兼容旧格式 uid.exp.sig（ver 视为 0），老用户不会被无故登出。
+func makeToken(uid, ver int64) string {
 	days := effSessionDays()
 	exp := time.Now().Add(time.Duration(days) * 24 * time.Hour).Unix()
-	payload := fmt.Sprintf("%d.%d", uid, exp)
+	payload := fmt.Sprintf("%d.%d.%d", uid, exp, ver)
 	mac := hmacSHA256([]byte(secretKey), []byte(payload))
 	return payload + "." + hex.EncodeToString(mac)
 }
 
-func parseToken(token string) int64 {
+// parseToken 返回 uid 与 token_version；校验失败返回 (0,0)
+func parseToken(token string) (int64, int64) {
 	ps := strings.Split(token, ".")
-	if len(ps) != 3 {
-		return 0
+	if len(ps) != 3 && len(ps) != 4 {
+		return 0, 0
 	}
-	mac := hmacSHA256([]byte(secretKey), []byte(ps[0]+"."+ps[1]))
-	if subtle.ConstantTimeCompare([]byte(hex.EncodeToString(mac)), []byte(ps[2])) != 1 {
-		return 0
+	sig := ps[len(ps)-1]
+	payload := strings.Join(ps[:len(ps)-1], ".")
+	mac := hmacSHA256([]byte(secretKey), []byte(payload))
+	if subtle.ConstantTimeCompare([]byte(hex.EncodeToString(mac)), []byte(sig)) != 1 {
+		return 0, 0
 	}
-	exp, _ := strconv.ParseInt(ps[1], 10, 64)
-	if time.Now().Unix() > exp {
-		return 0
+	exp, err := strconv.ParseInt(ps[1], 10, 64)
+	if err != nil || time.Now().Unix() > exp {
+		return 0, 0
 	}
-	uid, _ := strconv.ParseInt(ps[0], 10, 64)
-	return uid
+	uid, err := strconv.ParseInt(ps[0], 10, 64)
+	if err != nil || uid <= 0 {
+		return 0, 0
+	}
+	var ver int64
+	if len(ps) == 4 {
+		ver, _ = strconv.ParseInt(ps[2], 10, 64)
+	}
+	return uid, ver
 }
 
 type user struct {
@@ -221,28 +246,41 @@ func currentUser(r *http.Request) *user {
 	if err != nil {
 		return nil
 	}
-	uid := parseToken(c.Value)
+	uid, ver := parseToken(c.Value)
 	if uid == 0 {
 		return nil
 	}
-	var u user
 	var name, disp string
-	var admin, disabled int
-	// 停用账号：已签发的 Cookie 一并失效，防止被停用后仍能继续打印
-	err = db.QueryRow("SELECT username, COALESCE(display_name,''), is_admin, COALESCE(disabled,0) FROM users WHERE id=?", uid).
-		Scan(&name, &disp, &admin, &disabled)
-	if err != nil || disabled == 1 {
+	var admin, disabled, tokenVer int
+	// 停用账号、或令牌版本落后（已改密码）：已签发的 Cookie 一并失效
+	err = db.QueryRow(`SELECT username, COALESCE(display_name,''), is_admin, COALESCE(disabled,0),
+		COALESCE(token_version,0) FROM users WHERE id=?`, uid).
+		Scan(&name, &disp, &admin, &disabled, &tokenVer)
+	if err != nil || disabled == 1 || int64(tokenVer) != ver {
 		return nil
 	}
-	u = user{ID: uid, Username: name, DisplayName: disp, IsAdmin: admin}
-	return &u
+	return &user{ID: uid, Username: name, DisplayName: disp, IsAdmin: admin}
 }
 
 // ---------- Agent WS 通道 ----------
 var (
-	agentMu   sync.Mutex
-	agentConn *websocket.Conn
+	agentMu     sync.Mutex
+	agentConn   *websocket.Conn
+	agentLastAt time.Time // 最近一次确认在线的时刻（连接建立或收到任何消息）
 )
+
+// agentOnline 返回是否在线，以及距最后一次在线过去了多久
+func agentOnline() (bool, time.Duration) {
+	agentMu.Lock()
+	defer agentMu.Unlock()
+	if agentConn != nil {
+		return true, 0
+	}
+	if agentLastAt.IsZero() {
+		return false, 24 * time.Hour
+	}
+	return false, time.Since(agentLastAt)
+}
 
 func sendToAgent(v interface{}) bool {
 	agentMu.Lock()
@@ -286,13 +324,78 @@ func dispatchQueued() {
 
 func onAgentStatus(jobID int64, status, errMsg string) {
 	db.Exec("UPDATE print_jobs SET status=?, error=?, updated_at=? WHERE id=?", status, errMsg, time.Now().Unix(), jobID)
-	if status == "completed" {
+	// 打印完成或失败：立即删除云端文件，密文/明文都不留
+	if status == "completed" || status == "failed" {
 		var path string
-		if db.QueryRow("SELECT file_path FROM print_jobs WHERE id=?", jobID).Scan(&path) == nil {
-			os.Remove(path) // 打印完成立即删除云端文件
+		if db.QueryRow("SELECT file_path FROM print_jobs WHERE id=?", jobID).Scan(&path) == nil && path != "" {
+			os.Remove(path)
 			db.Exec("UPDATE print_jobs SET purged=1 WHERE id=?", jobID)
 		}
 	}
+}
+
+// requeueStaleProcessing：回收「打印中」但长期无进展的任务，解决两个真实问题：
+//  1. 家庭端崩溃/断电后再也没上来 → 任务永远停在 processing，用户一直看到「打印中…」
+//  2. 大文件或打印队列靠后时，任务确实还在打印 → 不能误判失败
+//
+// 判定规则：
+//   - 家庭端离线且已离线超过 timeout          → 判失败（不会再有人回报了）
+//   - 家庭端在线，但任务超过 3×timeout 无回报 → 不改状态，只标记「疑似超时」提示用户去确认
+func requeueStaleProcessing(timeout time.Duration) int {
+	online, offlineFor := agentOnline()
+
+	// 情况 A：家庭端离线超过阈值 → 这些 processing 任务不可能再有回报，判失败
+	if !online && offlineFor > timeout {
+		cutoff := float64(time.Now().Add(-timeout).Unix())
+		rows, err := db.Query(`SELECT id, COALESCE(file_path,'') FROM print_jobs
+			WHERE status='processing' AND purged=0 AND COALESCE(updated_at,created_at,0)<?`, cutoff)
+		if err == nil {
+			type stale struct {
+				id   int64
+				path string
+			}
+			var list []stale
+			for rows.Next() {
+				var s stale
+				rows.Scan(&s.id, &s.path)
+				list = append(list, s)
+			}
+			rows.Close()
+			for _, s := range list {
+				db.Exec(`UPDATE print_jobs SET status='failed', error=?, updated_at=?, purged=1 WHERE id=?`,
+					"家庭端已离线，打印中断（请检查家里电脑/路由器，回来后重新提交）",
+					float64(time.Now().Unix()), s.id)
+				if s.path != "" {
+					os.Remove(s.path)
+				}
+				log.Printf("任务 #%d 因家庭端离线超时，已标记失败", s.id)
+			}
+			return len(list)
+		}
+		return 0
+	}
+
+	// 情况 B：家庭端在线，但任务太久没回报 → 只加提示，不改状态、不删文件
+	hardCutoff := float64(time.Now().Add(-3 * timeout).Unix())
+	rows, err := db.Query(`SELECT id FROM print_jobs
+		WHERE status='processing' AND purged=0 AND COALESCE(error,'')='' AND COALESCE(updated_at,created_at,0)<?`,
+		hardCutoff)
+	if err != nil {
+		return 0
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		rows.Scan(&id)
+		ids = append(ids, id)
+	}
+	rows.Close()
+	for _, id := range ids {
+		db.Exec(`UPDATE print_jobs SET error=? WHERE id=? AND status='processing'`,
+			"似乎卡住了，请到打印机旁确认是否已出纸", id)
+		log.Printf("任务 #%d 打印超时（%v 无进展），已标注提示", id, 3*timeout)
+	}
+	return len(ids)
 }
 
 func wsAgent(w http.ResponseWriter, r *http.Request) {
@@ -316,12 +419,14 @@ func wsAgent(w http.ResponseWriter, r *http.Request) {
 		old.Close() // 单设备模式：新连接顶替旧连接，防止幽灵连接
 	}
 	agentConn = conn
+	agentLastAt = time.Now()
 	agentMu.Unlock()
 	log.Printf("Agent 已连接: remote=%s", r.RemoteAddr)
 	defer func() {
 		agentMu.Lock()
 		if agentConn == conn {
 			agentConn = nil
+			agentLastAt = time.Now() // 记下离线时刻，供超时回收判断
 		}
 		agentMu.Unlock()
 		conn.Close()
@@ -373,16 +478,34 @@ func requireUser(w http.ResponseWriter, r *http.Request) *user {
 }
 
 // ---------- 用户 API（与 Python 版响应结构一致）----------
+// normalizeUsername：统一小写去空格。老库中已存在的原样用户名仍可登录（下面做了兜底查询）。
+func normalizeUsername(s string) string {
+	return strings.ToLower(strings.TrimSpace(s))
+}
+
 func apiLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct{ Username, Password string }
 	json.NewDecoder(r.Body).Decode(&body)
+	uname := normalizeUsername(body.Username)
+	if uname == "" || body.Password == "" {
+		jsonErr(w, 400, "请输入用户名和密码")
+		return
+	}
 	var id int64
 	var hash, disp string
 	var admin, failed, disabled int
 	var locked float64
-	err := db.QueryRow("SELECT id, password_hash, COALESCE(display_name,''), is_admin, failed, locked_until, COALESCE(disabled,0) FROM users WHERE username=?",
-		body.Username).Scan(&id, &hash, &disp, &admin, &failed, &locked, &disabled)
-	if err == sql.ErrNoRows {
+	var tokenVer int64
+	// 先按规范化用户名查；查不到再按原样查（兼容升级前创建的大写用户名）
+	err := db.QueryRow(`SELECT id, password_hash, COALESCE(display_name,''), is_admin, failed,
+		locked_until, COALESCE(disabled,0), COALESCE(token_version,0) FROM users WHERE username=?`,
+		uname).Scan(&id, &hash, &disp, &admin, &failed, &locked, &disabled, &tokenVer)
+	if err == sql.ErrNoRows && body.Username != uname {
+		err = db.QueryRow(`SELECT id, password_hash, COALESCE(display_name,''), is_admin, failed,
+			locked_until, COALESCE(disabled,0), COALESCE(token_version,0) FROM users WHERE username=?`,
+			strings.TrimSpace(body.Username)).Scan(&id, &hash, &disp, &admin, &failed, &locked, &disabled, &tokenVer)
+	}
+	if err != nil {
 		jsonErr(w, 401, "用户名或密码错误")
 		return
 	}
@@ -408,10 +531,10 @@ func apiLogin(w http.ResponseWriter, r *http.Request) {
 	db.Exec("UPDATE users SET failed=0, locked_until=0, last_login=? WHERE id=?", now, id)
 	days := effSessionDays()
 	http.SetCookie(w, &http.Cookie{
-		Name: "fp_session", Value: makeToken(id), Path: "/",
+		Name: "fp_session", Value: makeToken(id, tokenVer), Path: "/",
 		MaxAge: days * 86400, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: true})
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"id": id, "username": body.Username, "display_name": disp, "is_admin": admin})
+		"id": id, "username": uname, "display_name": disp, "is_admin": admin})
 }
 
 func apiLogout(w http.ResponseWriter, r *http.Request) {
@@ -471,7 +594,21 @@ func apiCreateJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-	ext := strings.ToLower(filepath.Ext(hdr.Filename))
+	// 净化文件名：只取 basename，去掉路径分隔符与控制字符，避免展示/落盘时出问题
+	origName := filepath.Base(strings.ReplaceAll(hdr.Filename, "\\", "/"))
+	origName = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, origName)
+	if origName == "" || origName == "." || origName == ".." || origName == "/" {
+		origName = "print" + filepath.Ext(hdr.Filename)
+	}
+	if len(origName) > 120 {
+		origName = origName[:100] + filepath.Ext(origName)
+	}
+	ext := strings.ToLower(filepath.Ext(origName))
 	if !allowedExt[ext] {
 		jsonErr(w, 400, "不支持的文件类型，仅支持：.docx, .jpg, .jpeg, .pdf, .png, .txt")
 		return
@@ -525,7 +662,7 @@ func apiCreateJob(w http.ResponseWriter, r *http.Request) {
 	}
 	now := float64(time.Now().Unix())
 	res, err := db.Exec("INSERT INTO print_jobs(user_id,file_path,orig_name,printer_name,copies,color,sides,paper,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,'queued',?,?)",
-		u.ID, fpath, hdr.Filename, printer, copies, color, sides, paper, now, now)
+		u.ID, fpath, origName, printer, copies, color, sides, paper, now, now)
 	if err != nil {
 		os.Remove(fpath)
 		jsonErr(w, 500, "任务创建失败")
@@ -534,7 +671,7 @@ func apiCreateJob(w http.ResponseWriter, r *http.Request) {
 	jid, _ := res.LastInsertId()
 	data, _ := os.ReadFile(fpath)
 	sent := sendToAgent(map[string]interface{}{
-		"type": "job", "job_id": jid, "filename": hdr.Filename,
+		"type": "job", "job_id": jid, "filename": origName,
 		"data": base64.StdEncoding.EncodeToString(data),
 		"params": map[string]interface{}{
 			"copies": copies, "color": color, "sides": sides, "paper": paper}})
@@ -655,17 +792,33 @@ func apiAdminCreateUser(w http.ResponseWriter, r *http.Request) {
 		IsAdmin     int    `json:"is_admin"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
-	body.Username = strings.TrimSpace(body.Username)
-	if len(body.Username) < 2 || len(body.Username) > 32 {
+	uname := normalizeUsername(body.Username)
+	if len(uname) < 2 || len(uname) > 32 {
 		jsonErr(w, 400, "用户名长度需为 2-32 位")
+		return
+	}
+	if strings.ContainsAny(uname, " \t\r\n/@") {
+		jsonErr(w, 400, "用户名不能包含空格或特殊字符")
 		return
 	}
 	if len(body.Password) < 6 {
 		jsonErr(w, 400, "密码至少 6 位")
 		return
 	}
-	res, err := db.Exec("INSERT INTO users(username,password_hash,display_name,is_admin,created_at) VALUES(?,?,?,?,?)",
-		body.Username, hashPW(body.Password, ""), body.DisplayName, body.IsAdmin, float64(time.Now().Unix()))
+	// 大小写不敏感查重（老库可能存有大写用户名）
+	var dup int
+	db.QueryRow("SELECT COUNT(*) FROM users WHERE LOWER(username)=?", uname).Scan(&dup)
+	if dup > 0 {
+		jsonErr(w, 400, "用户名已存在")
+		return
+	}
+	isAdmin := 0
+	if body.IsAdmin == 1 {
+		isAdmin = 1
+	}
+	res, err := db.Exec(`INSERT INTO users(username,password_hash,display_name,is_admin,created_at,token_version)
+		VALUES(?,?,?,?,?,0)`,
+		uname, hashPW(body.Password, ""), strings.TrimSpace(body.DisplayName), isAdmin, float64(time.Now().Unix()))
 	if err != nil {
 		jsonErr(w, 400, "用户名已存在")
 		return
@@ -674,7 +827,7 @@ func apiAdminCreateUser(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "id": id})
 }
 
-// 重置密码
+// 重置密码：同时递增 token_version，让该用户所有已登录设备立即失效
 func apiAdminResetPW(w http.ResponseWriter, r *http.Request) {
 	if requireAdmin(w, r) == nil {
 		return
@@ -689,13 +842,22 @@ func apiAdminResetPW(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, 400, "密码至少 6 位")
 		return
 	}
-	res, err := db.Exec("UPDATE users SET password_hash=?, failed=0, locked_until=0 WHERE id=?",
+	res, err := db.Exec(`UPDATE users SET password_hash=?, failed=0, locked_until=0,
+		token_version=COALESCE(token_version,0)+1 WHERE id=?`,
 		hashPW(body.Password, ""), uid)
 	if n, _ := res.RowsAffected(); err != nil || n == 0 {
 		jsonErr(w, 404, "用户不存在")
 		return
 	}
 	jsonOK(w)
+}
+
+// 统计「其他可用管理员」数量（启用中的管理员，不含指定 id）
+func otherActiveAdmins(excludeID int64) int {
+	var n int
+	db.QueryRow(`SELECT COUNT(*) FROM users WHERE is_admin=1 AND COALESCE(disabled,0)=0 AND id<>?`,
+		excludeID).Scan(&n)
+	return n
 }
 
 // 启用 / 停用
@@ -718,6 +880,19 @@ func apiAdminToggleUser(w http.ResponseWriter, r *http.Request) {
 	if body.Disabled == 1 {
 		v = 1
 	}
+	// 防锁死：停用的若是一个管理员，且没有其他可用管理员，则拒绝
+	if v == 1 {
+		var isAdmin, disabled int
+		if db.QueryRow("SELECT is_admin, COALESCE(disabled,0) FROM users WHERE id=?", uid).
+			Scan(&isAdmin, &disabled) != nil {
+			jsonErr(w, 404, "用户不存在")
+			return
+		}
+		if isAdmin == 1 && disabled == 0 && otherActiveAdmins(uid) == 0 {
+			jsonErr(w, 400, "这是最后一个可用的管理员，不能停用")
+			return
+		}
+	}
 	if _, err := db.Exec("UPDATE users SET disabled=? WHERE id=?", v, uid); err != nil {
 		jsonErr(w, 500, "操作失败")
 		return
@@ -735,6 +910,17 @@ func apiAdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 	fmt.Sscanf(r.PathValue("id"), "%d", &uid)
 	if uid == me.ID {
 		jsonErr(w, 400, "不能删除自己的账号")
+		return
+	}
+	// 防锁死：删除的若是最后一个可用管理员，则拒绝
+	var isAdmin, disabled int
+	if db.QueryRow("SELECT is_admin, COALESCE(disabled,0) FROM users WHERE id=?", uid).
+		Scan(&isAdmin, &disabled) != nil {
+		jsonErr(w, 404, "用户不存在")
+		return
+	}
+	if isAdmin == 1 && disabled == 0 && otherActiveAdmins(uid) == 0 {
+		jsonErr(w, 400, "这是最后一个可用的管理员，不能删除")
 		return
 	}
 	rows, err := db.Query("SELECT file_path FROM print_jobs WHERE user_id=?", uid)
@@ -827,6 +1013,7 @@ func apiAdminKickAgent(w http.ResponseWriter, r *http.Request) {
 	if agentConn != nil {
 		agentConn.Close()
 		agentConn = nil
+		agentLastAt = time.Now()
 	}
 	agentMu.Unlock()
 	jsonOK(w)
@@ -879,11 +1066,21 @@ func apiAdminPutSettings(w http.ResponseWriter, r *http.Request) {
 		"allow_e2ee": effAllowE2EE()})
 }
 
-// 每小时清理：完成/取消超 24h 的残留文件
+// 后台看护循环：
+//   - 每 20 秒回收卡死的 processing 任务（默认超时 5 分钟，可用 -job-timeout 调整）
+//   - 每小时清理完成/取消超 24h 的残留文件
 func cleanupLoop() {
+	go func() {
+		tick := time.NewTicker(20 * time.Second)
+		defer tick.Stop()
+		for range tick.C {
+			requeueStaleProcessing(effJobTimeout())
+		}
+	}()
 	for {
 		time.Sleep(time.Hour)
-		rows, err := db.Query("SELECT file_path FROM print_jobs WHERE status IN ('completed','canceled') AND updated_at<?",
+		rows, err := db.Query(`SELECT file_path FROM print_jobs
+			WHERE status IN ('completed','canceled','failed') AND coalesce(purged,0)=0 AND updated_at<?`,
 			float64(time.Now().Add(-24*time.Hour).Unix()))
 		if err != nil {
 			continue
@@ -896,8 +1093,12 @@ func cleanupLoop() {
 		}
 		rows.Close()
 		for _, p := range paths {
-			os.Remove(p)
+			if p != "" {
+				os.Remove(p)
+			}
 		}
+		db.Exec(`UPDATE print_jobs SET purged=1 WHERE status IN ('completed','canceled','failed')
+			AND coalesce(purged,0)=0 AND updated_at<?`, float64(time.Now().Add(-24*time.Hour).Unix()))
 	}
 }
 
