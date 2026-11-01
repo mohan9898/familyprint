@@ -19,3 +19,11 @@ services:
       - MOCK=0
       # 可选：端到端加密家庭密钥——填上后浏览器首次打印时输入同一密钥，云端只见密文
       - PRINT_KEY=
+      # 可选：调试日志（1=输出探活等细节，默认关）
+      - DEBUG=0
+    # 日志自动轮转：防止长期运行日志占满磁盘
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
