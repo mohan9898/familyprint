@@ -277,21 +277,56 @@ bash restore.sh fp-backup-xxx.tar.gz    # 恢复
 |----------|------------|-----------|
 | 看云端日志 | `docker logs -f fp-cloud` | `journalctl -u fp-cloud -f` |
 | 看家庭端日志 | `docker logs -f fp-agent` | `journalctl -u fp-agent -f` |
+| 只看错误 | `docker logs fp-cloud 2>&1 \| grep ERR` | `journalctl -u fp-cloud \| grep ERR` |
 | 重启云端 | `docker compose -f docker-compose.cloud.yml restart` | `systemctl restart fp-cloud` |
 | 重启家庭端 | `docker compose -f docker-compose.agent.yml restart` | `systemctl restart fp-agent` |
 | 升级版本 | `docker compose ... pull && docker compose ... up -d` | 重新下载二进制覆盖后重启 |
+
+### 日志怎么看（排查问题的第一入口）
+
+两端日志都带级别前缀，`docker logs` / `journalctl` 直接看：
+
+| 前缀 | 含义 | 什么时候关注 |
+|------|------|-------------|
+| `[INF]` | 正常运转（登录、任务下发、打印完成） | 日常浏览 |
+| `[WRN]` | 值得注意（登录失败、打印机离线、任务卡住） | 偶尔出现正常，频繁出现要查 |
+| `[ERR]` | 出错了（打印失败、连不上、存储故障） | **第一时间看** |
+
+**云端日志能看到什么**：
+
+- 启动时打印一行「配置横幅」：版本、监听地址、每日限额、账号/任务数，一眼确认配置没改错
+- 每条 HTTP 请求一行：`[INF] [请求ID] POST /api/login 200 53ms ip=1.2.x.x`（来源 IP 已脱敏）
+- 登录成功/失败（含第几次错误、是否触发锁定）、任务提交/下发/完成/失败、管理员每一步操作（谁改了什么）
+- 管理操作还会落库，管理后台「记录」页最下方「管理操作日志」卡片可随时翻看（保留 90 天）
+
+**家庭端日志能看到什么**：
+
+- 启动横幅：版本、云端地址、打印机地址、是否启用加密——排查"连不上"先看这里配置对不对
+- 打印任务全流程：收到 → 排在第几位 → 开始打印（份数/彩黑白/双单面）→ 完成（含耗时）
+- 打印机离线会写明原因（连不上 / 打印机返回错误）
+
+**日志太多/太少可调**：云端设环境变量 `LOG_LEVEL=debug`（最详细）或 `error`（只看错误），默认 `info`；家庭端加 `-debug 1` 参数看探活等细节。
+
+**Docker 日志占磁盘？** 在 compose 文件的服务下加一段即可自动轮转（二进制方式走 journald，系统自带轮转）：
+
+```yaml
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+```
 
 ## 十、故障排查
 
 | 症状 | 最可能的原因 → 解决办法 |
 |------|------------------------|
 | 网页打不开 | DNS 未生效（等几分钟，`ping 域名` 核对 IP）；反代/证书没配好（检查反代配置和 80/443 端口） |
-| agent 连不上云端 | 两端 TOKEN 不一致（最常见！逐字核对）；域名写错；VPS 防火墙没放行 443 |
-| 任务一直「排队中」 | 家庭端离线（看 agent 日志）；或打印机没开机 |
+| agent 连不上云端 | 两端 TOKEN 不一致（最常见！云端日志会有「设备 token 不匹配」，agent 日志会直接提示核对 DEVICE_TOKEN）；域名写错；VPS 防火墙没放行 443 |
+| 任务一直「排队中」 | 家庭端离线（看 agent 日志「连不上」还是「已断开」）；或打印机没开机（agent 日志有「打印机离线」及原因） |
 | 「失败：打印机连接失败」 | IPP 地址写错（先在家庭端 `curl -m 3 http://打印机IP:631` 测试）；打印机 IP 变了（绑静态 IP） |
 | 双面/彩色不生效 | 个别品牌 IPP 属性名不同，提 [issue](https://github.com/mohan9898/familyprint/issues) 附品牌型号 |
 | 「不支持的文件类型」 | 支持 PDF/JPG/PNG/DOCX/TXT；老 .doc 先转成 .docx 或 PDF |
 | 过段时间又要登录 | 正常（默认 30 天），重登一次即可 |
+| 打印失败不知道哪一步出的问题 | 云端日志按「请求 ID」串起一次操作的全部日志；家庭端日志能看到「收到→排队→开始→完成/失败」每一步和耗时 |
 
 ---
 
@@ -343,12 +378,12 @@ journalctl -u fp-cloud -f   # 应看到 "监听 :8000"
 |------|-----------|-----------|
 | x86 软路由 / NAS / VPS / 旧电脑 | `fp-agent-linux-amd64` | `fp-cloud-linux-amd64` |
 | 树莓派 4/5、ARM 盒子（N1/R2S/R4S） | `fp-agent-linux-arm64` | `fp-cloud-linux-arm64` |
-
-> 💡 `arm64` 就是 `aarch64`（同一种架构的两种叫法）。不确定设备架构时，在设备上执行 `uname -m`：输出 `aarch64` → 下载 `*-linux-arm64`；输出 `x86_64` → 下载 `*-linux-amd64`；输出 `armv7l` → 下载 `*-linux-arm`。
 | 树莓派 3、32 位 ARM | `fp-agent-linux-arm` | `fp-cloud-linux-arm` |
 | Mac（Intel / Apple Silicon） | `fp-agent-darwin-*` | `fp-cloud-darwin-*` |
 | Windows | `fp-agent-windows-amd64.exe` | `fp-cloud-windows-amd64.exe` |
 
+> 💡 `arm64` 就是 `aarch64`（同一种架构的两种叫法）。不确定设备架构时，在设备上执行 `uname -m`：输出 `aarch64` → 下载 `*-linux-arm64`；输出 `x86_64` → 下载 `*-linux-amd64`；输出 `armv7l` → 下载 `*-linux-arm`。
+>
 > USB 打印机暂不支持（需 CUPS 桥接），当前面向 IPP 网络打印机。
 
 ### 附录 D · 家庭端开机自启配置
