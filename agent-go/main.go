@@ -49,12 +49,32 @@ func init() {
 	flag.StringVar(&printerName, "name", printerName, "打印机显示名")
 	flag.StringVar(&e2eeKey, "key", e2eeKey, "端到端加密家庭密钥（可选，与浏览器端一致）")
 	flag.StringVar(&mockStr, "mock", envOr("MOCK", "0"), "模拟打印（1=开启，调试用）")
+	var dbgStr string
+	flag.StringVar(&dbgStr, "debug", envOr("DEBUG", "0"), "调试模式（1=输出探活等详细日志）")
 	flag.Parse()
 	if s := strings.TrimSpace(cloud); s != "" {
 		cloudURLs = strings.Split(s, ",")
 	}
 	mock = mockStr == "1"
+	debug = dbgStr == "1"
 }
+
+// ---------- 日志：统一前缀 + 级别，便于 docker logs / journalctl 过滤 ----------
+// 家庭端不需要复杂分级，只用 INF / WRN / ERR 三档，并统一加 [时间已由 log 包自带]
+func logInf(format string, a ...interface{}) { log.Printf("[INF] "+format, a...) }
+func logWrn(format string, a ...interface{}) { log.Printf("[WRN] "+format, a...) }
+func logErr(format string, a ...interface{}) { log.Printf("[ERR] "+format, a...) }
+func logDebug(format string, a ...interface{}) {
+	if debug {
+		log.Printf("[DBG] "+format, a...)
+	}
+}
+
+// debug：DEBUG=1 或 -debug 时输出探活等心跳级日志（默认关，避免刷屏）
+var debug = false
+
+// 构建版本（CI 用 -ldflags 注入，未注入为 dev）
+var buildVersion = "dev"
 
 func envOr(k, d string) string {
 	if v := os.Getenv(k); v != "" {
@@ -190,9 +210,11 @@ func handleJob(ws *wsConn, raw []byte) {
 	}
 	data, err := base64.StdEncoding.DecodeString(msg.Data)
 	if err != nil {
+		logWrn("任务 #%d 数据解码失败: %v", msg.JobID, err)
 		ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "failed", "error": "文件解码失败"})
 		return
 	}
+	logInf("收到任务 #%d: %s (%dKB)", msg.JobID, msg.Filename, len(data)/1024)
 	printName, printData := msg.Filename, data
 	if strings.HasSuffix(strings.ToLower(msg.Filename), ".enc") {
 		// 是密文：必须解密后再打印。
@@ -200,23 +222,28 @@ func handleJob(ws *wsConn, raw []byte) {
 		if e2eeKey == "" {
 			ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "failed",
 				"error": "收到加密文件，但家庭端未配置家庭密钥，请用 -key 参数配置后重试"})
-			log.Printf("任务 #%d 为加密文件，但未配置 -key，已拒绝打印", msg.JobID)
+			logErr("任务 #%d 是加密文件，但本机没配置 -key，已拒绝打印（否则会打出乱码）", msg.JobID)
 			return
 		}
 		name, dec, err := e2eeDecrypt(data)
 		if err != nil {
+			logErr("任务 #%d 解密失败: %v（家庭密钥与网页端输入的不一致？）", msg.JobID, err)
 			ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "failed",
 				"error": "端到端解密失败（家庭密钥不匹配，请核对 -key 与网页端输入的密钥）"})
 			return
 		}
 		printName, printData = name, dec
-		log.Printf("任务 #%d 已解密: %s (%dKB)", msg.JobID, name, len(dec)/1024)
+		logInf("任务 #%d 解密成功: %s (%dKB)", msg.JobID, name, len(dec)/1024)
 	}
 	// 入队串行处理：先回 processing，避免用户在队列里看不到排队
 	ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "processing"})
+	if waiting := len(printQueue); waiting > 0 {
+		logInf("任务 #%d 进入打印队列，前面还有 %d 个任务在等", msg.JobID, waiting)
+	}
 	select {
 	case printQueue <- func() { runPrint(ws, msg, printName, printData) }:
 	default:
+		logErr("任务 #%d 被拒: 打印队列已满（上限 %d）", msg.JobID, cap(printQueue))
 		ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "failed",
 			"error": "打印队列已满，请稍后重试"})
 	}
@@ -224,6 +251,7 @@ func handleJob(ws *wsConn, raw []byte) {
 
 // runPrint 在工作协程里串行执行真正的打印
 func runPrint(ws *wsConn, msg jobMsg, printName string, printData []byte) {
+	start := time.Now()
 	// 文件名来自用户上传，必须净化，防止 ../ 路径穿越覆盖系统文件
 	safeName := filepath.Base(strings.ReplaceAll(printName, "\\", "/"))
 	if safeName == "" || safeName == "." || safeName == "/" {
@@ -231,14 +259,21 @@ func runPrint(ws *wsConn, msg jobMsg, printName string, printData []byte) {
 	}
 	tmp := filepath.Join(os.TempDir(), fmt.Sprintf("fp_%d_%s", msg.JobID, safeName))
 	if err := os.WriteFile(tmp, printData, 0600); err != nil {
+		logErr("任务 #%d 临时文件写入失败: %v（磁盘满 / /tmp 不可写？）", msg.JobID, err)
 		ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "failed", "error": "临时文件写入失败"})
 		return
 	}
 	defer os.Remove(tmp) // 用完即删
-	log.Printf("任务 #%d 开始打印: %s (%dKB)", msg.JobID, safeName, len(printData)/1024)
-	if err := ippPrint(tmp, safeName, msg); err != nil {
+	logInf("任务 #%d 开始打印: %s (%dKB, %d份, %s, %s)", msg.JobID, safeName, len(printData)/1024,
+		msg.Params.Copies, map[bool]string{true: "彩色", false: "黑白"}[msg.Params.Color == 1],
+		map[bool]string{true: "双面", false: "单面"}[msg.Params.Sides == "two-sided"])
+	err := ippPrint(tmp, safeName, msg)
+	took := time.Since(start).Round(100 * time.Millisecond)
+	if err != nil {
+		logErr("任务 #%d 打印失败（耗时 %s）: %v", msg.JobID, took, err)
 		ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "failed", "error": err.Error()})
 	} else {
+		logInf("任务 #%d 打印完成（耗时 %s）", msg.JobID, took)
 		ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "completed"})
 	}
 }
@@ -289,8 +324,13 @@ func e2eeDecrypt(blob []byte) (string, []byte, error) {
 
 // reportPrinters：探活打印机并上报状态。
 // 用 Get-Printer-Attributes 更准确；部分老打印机不支持，退化为 TCP 连通性判断。
+// 只在"状态发生变化"时打日志，避免每 30 秒刷一条。
+var lastPrinterStatus = ""
+
 func reportPrinters(ws *wsConn) {
+	start := time.Now()
 	status := "online"
+	reason := ""
 	if !mock {
 		httpURL := strings.Replace(printerURI, "ipp://", "http://", 1)
 		req := goipp.NewRequest(goipp.DefaultVersion, goipp.OpGetPrinterAttributes, 1)
@@ -300,26 +340,45 @@ func reportPrinters(ws *wsConn) {
 		req.Operation.Add(goipp.MakeAttribute("requested-attributes", goipp.TagKeyword, goipp.String("printer-state")))
 		payload, encErr := req.EncodeBytes()
 		if encErr != nil {
-			status = "offline"
+			status, reason = "offline", "IPP 请求编码失败: "+encErr.Error()
 		} else {
 			rsp, err := probeClient.Post(httpURL, goipp.ContentType, bytes.NewReader(payload))
 			if err != nil {
-				status = "offline"
+				status, reason = "offline", "探测失败: "+err.Error()
 			} else {
 				rsp.Body.Close()
 				// 只要打印机在 HTTP 层有响应（含 4xx/5xx 的 IPP 错误），就说明设备在线
 				if rsp.StatusCode/100 == 5 {
-					status = "offline"
+					status, reason = "offline", "打印机返回 "+rsp.Status
 				}
 			}
 		}
 	}
+	if status != lastPrinterStatus {
+		switch status {
+		case "online":
+			if lastPrinterStatus == "" {
+				logInf("打印机「%s」在线，探测耗时 %s", printerName, time.Since(start).Round(time.Millisecond))
+			} else {
+				logInf("打印机「%s」恢复在线", printerName)
+			}
+		case "offline":
+			logWrn("打印机「%s」离线：%s（检查电源/WiFi、IPP 地址 %s 是否正确、IP 是否变化）",
+				printerName, reason, printerURI)
+		}
+		lastPrinterStatus = status
+	} else if debug {
+		logDebug("探活 %s → %s（%s）", printerURI, status, time.Since(start).Round(time.Millisecond))
+	}
 	ws.send(map[string]interface{}{"type": "printers", "list": []map[string]string{{"name": printerName, "status": status}}})
 }
 
+// errNeverConnected：本次连接在"成功建立"之前就失败了，用于区分「配置错」与「正常断线重连」
+var errNeverConnected = errors.New("连接建立失败")
+
 func connectOnce(rawURL string, quit chan struct{}) error {
 	if strings.HasPrefix(rawURL, "ws://") {
-		log.Printf("⚠️ 警告: %s 使用未加密 ws:// 连接，生产环境应使用 wss://（域名+HTTPS）", rawURL)
+		logWrn("%s 使用未加密 ws:// 连接，生产环境应使用 wss://（域名+HTTPS）", rawURL)
 	}
 	u, err := url.Parse(rawURL)
 	if err != nil {
@@ -331,13 +390,18 @@ func connectOnce(rawURL string, quit chan struct{}) error {
 	header := http.Header{}
 	header.Set("X-Device-Token", deviceToken)
 
-	conn, _, err := websocket.DefaultDialer.Dial(u.String(), header)
+	conn, rsp, err := websocket.DefaultDialer.Dial(u.String(), header)
 	if err != nil {
-		return err
+		// 403 几乎一定是两端 token 不一致；这里给出明确指向，省得用户翻文档
+		if rsp != nil && rsp.StatusCode == 403 {
+			return fmt.Errorf("%w: 云端拒绝了设备 token（HTTP 403），请核对两端 DEVICE_TOKEN 是否完全一致", errNeverConnected)
+		}
+		return fmt.Errorf("%w: %v", errNeverConnected, err)
 	}
 	defer conn.Close()
 	ws := &wsConn{conn: conn, mu: make(chan struct{}, 1)}
-	log.Printf("已连接云端 %s", rawURL)
+	connectedAt := time.Now()
+	logInf("已连接云端 %s", rawURL)
 	reportPrinters(ws)
 
 	// 心跳
@@ -367,7 +431,11 @@ func connectOnce(rawURL string, quit chan struct{}) error {
 	for {
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
-			return err
+			uptime := time.Since(connectedAt).Round(time.Second)
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				return fmt.Errorf("连接异常断开（已保持 %s）: %w", uptime, err)
+			}
+			return fmt.Errorf("连接已被关闭（已保持 %s）", uptime)
 		}
 		var m jobMsg
 		json.Unmarshal(raw, &m)
@@ -375,7 +443,9 @@ func connectOnce(rawURL string, quit chan struct{}) error {
 			go handleJob(ws, raw)
 		} else if m.Type == "cancel" {
 			// 简化：家庭场景任务下发改打印后由打印机排队，取消仅对未下发任务有效（云端侧处理）
-			log.Printf("任务 #%d 取消请求", m.JobID)
+			logInf("收到任务 #%d 取消通知（若已进打印机队列，可能仍会出纸）", m.JobID)
+		} else {
+			logDebug("收到未识别的消息类型 %q，已忽略", m.Type)
 		}
 	}
 }
@@ -386,12 +456,22 @@ func main() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 		<-sig
+		logInf("收到退出信号，正在停止…")
 		close(quit)
 		os.Exit(0)
 	}()
-	log.Printf("FamilyPrint-Agent 启动 | 云端: %v | 打印机: %s | MOCK=%v", cloudURLs, printerURI, mock)
+	// 启动横幅：排查问题时先确认"跑的是哪个版本、连的是哪、打印机地址对不对"
+	logInf("FamilyPrint-Agent 启动")
+	logInf("  版本      %s", buildVersion)
+	logInf("  云端      %v", cloudURLs)
+	logInf("  打印机    %s（%s）", printerName, printerURI)
+	logInf("  端到端    %s", map[bool]string{true: "已启用（-key 已配置）", false: "未启用"}[e2eeKey != ""])
+	logInf("  模拟模式  %v", mock)
+	logInf("  调试日志  %v", debug)
 	go printWorker() // 打印串行队列
+
 	backoff := 2 * time.Second
+	fails := 0
 	for {
 		for _, u := range cloudURLs {
 			u = strings.TrimSpace(u)
@@ -399,17 +479,37 @@ func main() {
 				continue
 			}
 			err := connectOnce(u, quit)
-			log.Printf("%s 连接断开: %v", u, err)
 			select {
 			case <-quit:
 				return
 			default:
 			}
+			if errors.Is(err, errNeverConnected) {
+				// 一次都没连上：多半是域名/token/网络问题，短间隔快速重试
+				fails++
+				if fails <= 3 || debug {
+					logErr("%s 连不上（第 %d 次重试）: %v", u, fails, err)
+					if fails == 3 {
+						logWrn("连续失败 3 次仍在重试，之后不再逐条打印连接错误（用 -debug 1 可看全部）")
+					}
+				}
+			} else {
+				// 连上过又断开：说明配置没问题，正常重连即可
+				logWrn("%s 连接断开: %v", u, err)
+				fails = 0
+			}
 		}
-		log.Printf("所有云端地址不可达，%v 后重试", backoff)
+		select {
+		case <-quit:
+			return
+		default:
+		}
+		logInf("%.0f 秒后重连（累计失败 %d 次）", backoff.Seconds(), fails)
 		time.Sleep(backoff)
-		if backoff < 60*time.Second {
+		if fails > 0 && backoff < 60*time.Second {
 			backoff *= 2
+		} else {
+			backoff = 2 * time.Second
 		}
 	}
 }
