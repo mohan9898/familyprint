@@ -95,6 +95,50 @@ button{cursor:pointer;font-family:inherit}
 }
 .empty{color:var(--t3);text-align:center;padding:20px;font-size:13.5px}
 a{cursor:pointer}
+
+/* ---------- 管理后台 ---------- */
+.tabs{display:flex;gap:6px;background:#eaeef6;border-radius:13px;padding:4px;margin-bottom:16px}
+.tabs button{flex:1;padding:10px 0;border:0;background:transparent;border-radius:10px;font-size:14.5px;color:var(--t2);font-weight:500;transition:.2s}
+.tabs button.on{background:#fff;color:var(--main-deep);font-weight:700;box-shadow:0 1px 4px rgba(28,35,51,.1)}
+.pane{display:none}.pane.on{display:block}
+.sec-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.sec-head h3{font-size:15.5px;font-weight:700}
+.btn{padding:9px 15px;border:0;border-radius:11px;font-size:13.5px;font-weight:600;transition:.2s}
+.btn:active{transform:scale(.97)}
+.btn-main{background:linear-gradient(135deg,var(--main),var(--main-deep));color:#fff;box-shadow:0 3px 10px rgba(79,124,255,.3)}
+.btn-ghost{background:#f0f2f7;color:var(--t2)}
+.btn-danger{background:#fdebec;color:var(--err)}
+.btn-ok{background:#e6f6ee;color:var(--ok)}
+.usr{padding:13px 0;border-bottom:1px solid var(--line)}
+.usr:last-child{border:0}
+.usr-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.usr-name{font-weight:700;font-size:15px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.usr-meta{color:var(--t3);font-size:12px;margin-top:4px;line-height:1.6}
+.usr-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.usr-acts .btn{padding:6px 11px;font-size:12.5px;border-radius:9px}
+.tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600;line-height:1.7}
+.tag.admin{background:#eef1ff;color:var(--main-deep)}
+.tag.off{background:#f2f3f6;color:var(--t3)}
+.tag.dis{background:#fdebec;color:var(--err)}
+.fld{margin-bottom:13px}
+.fld label{display:block;font-size:13px;color:var(--t2);font-weight:500;margin-bottom:6px}
+.fld input,.fld select{margin-bottom:0}
+.fld .hint{font-size:11.5px;color:var(--t3);margin-top:5px;line-height:1.5}
+.stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:4px}
+.stat{background:#f7f9fd;border-radius:13px;padding:14px 10px;text-align:center}
+.stat .n{font-size:22px;font-weight:800;color:var(--main-deep);line-height:1.2}
+.stat .t{font-size:11.5px;color:var(--t3);margin-top:3px}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
+.dot.on{background:var(--ok);box-shadow:0 0 0 3px rgba(34,160,107,.18)}
+.dot.off{background:#c3cad6}
+.mask{position:fixed;inset:0;background:rgba(20,26,40,.42);display:none;z-index:20;backdrop-filter:blur(2px)}
+.mask.show{display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:#fff;width:100%;max-width:480px;border-radius:22px 22px 0 0;padding:22px 20px calc(22px + env(safe-area-inset-bottom));animation:up .25s ease}
+@keyframes up{from{transform:translateY(40px);opacity:.6}to{transform:none;opacity:1}}
+.sheet h3{font-size:17px;font-weight:700;margin-bottom:16px}
+.jobline{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.jobline:last-child{border:0}
+.jobline .who{color:var(--main-deep);font-weight:600;font-size:12.5px}
 </style>
 </head>
 <body>
@@ -116,7 +160,7 @@ a{cursor:pointer}
   <div id="main" hidden>
     <h1><span class="logo">🖨️</span>家印</h1>
     <p class="sub-title">选文件 · 点打印 · 回家取</p>
-    <div class="top"><span id="hello"></span><a onclick="logout()">退出</a></div>
+    <div class="top"><span id="hello"></span><span><a id="adminLink" hidden onclick="openAdmin()">管理</a> <a onclick="logout()">退出</a></span></div>
     <div class="tip" id="wxTip">💡 微信里使用：点"选择文件"后选 <b>照片</b> 或 <b>浏览</b>；聊天里的文件先<b>长按→保存到手机</b>再选。建议右上角"···"→收藏本页。</div>
     <div class="card">
       <div class="drop" onclick="f.click()"><span class="icon">📄</span>点击选择要打印的文件<div style="font-size:12.5px;color:var(--t3);margin-top:6px;font-weight:400" id="sub">PDF / 图片 / Word / 文本，≤50MB</div></div>
@@ -139,14 +183,96 @@ a{cursor:pointer}
       <div id="jobs"><p class="empty">加载中…</p></div>
     </div>
   </div>
+
+  <!-- 管理后台 -->
+  <div id="admin" hidden>
+    <h1><span class="logo">⚙️</span>管理后台</h1>
+    <p class="sub-title">成员 · 记录 · 设备 · 设置</p>
+    <div class="top"><span>家印 · 家庭管理员</span><span><a onclick="closeAdmin()">返回打印</a></span></div>
+
+    <div class="tabs" id="adminTabs">
+      <button data-p="u" class="on" onclick="switchPane('u')">成员</button>
+      <button data-p="j" onclick="switchPane('j')">记录</button>
+      <button data-p="d" onclick="switchPane('d')">设备</button>
+      <button data-p="s" onclick="switchPane('s')">设置</button>
+    </div>
+
+    <!-- 成员 -->
+    <div class="pane on" id="pane-u">
+      <div class="card">
+        <div class="sec-head"><h3>家庭成员</h3><button class="btn btn-main" onclick="openAddUser()">＋ 添加</button></div>
+        <div id="userList"><p class="empty">加载中…</p></div>
+      </div>
+    </div>
+
+    <!-- 记录 -->
+    <div class="pane" id="pane-j">
+      <div class="card">
+        <div class="sec-head"><h3>全部打印记录</h3><button class="btn btn-ghost" onclick="loadAdminJobs()">刷新</button></div>
+        <div id="adminJobs"><p class="empty">加载中…</p></div>
+      </div>
+    </div>
+
+    <!-- 设备 -->
+    <div class="pane" id="pane-d">
+      <div class="card">
+        <div class="sec-head"><h3>家里打印机状态</h3><button class="btn btn-ghost" onclick="loadAdminAgent()">刷新</button></div>
+        <div class="stat-grid">
+          <div class="stat"><div class="n" id="dTotal">-</div><div class="t">累计任务</div></div>
+          <div class="stat"><div class="n" id="d24">-</div><div class="t">近 24 小时</div></div>
+          <div class="stat"><div class="n" id="dOn" style="font-size:15px;padding-top:6px">-</div><div class="t">连接状态</div></div>
+        </div>
+        <div style="font-size:13px;color:var(--t2);margin:14px 0 10px" id="dPrinters">—</div>
+        <p class="hint" style="font-size:12px;color:var(--t3);line-height:1.7;margin-bottom:12px">如果家庭端卡住不动，可在这里强制断开，家庭端会在 30 秒内自动重连。</p>
+        <button class="btn btn-danger" style="width:100%;padding:12px" onclick="kickAgent()">强制断开家庭端连接</button>
+      </div>
+    </div>
+
+    <!-- 设置 -->
+    <div class="pane" id="pane-s">
+      <div class="card">
+        <div class="sec-head"><h3>系统设置</h3></div>
+        <div class="fld">
+          <label>每人每日打印上限（份）</label>
+          <input id="sLimit" type="number" min="1" max="999" inputmode="numeric">
+          <div class="hint">防止误操作刷纸，默认 30</div>
+        </div>
+        <div class="fld">
+          <label>登录记住天数（天）</label>
+          <input id="sDays" type="number" min="1" max="365" inputmode="numeric">
+          <div class="hint">超过后需重新输密码，默认 30</div>
+        </div>
+        <div class="fld">
+          <label>端到端加密上传</label>
+          <select id="sE2EE"><option value="1">开启（推荐，更安全）</option><option value="0">关闭（加密失败时应急）</option></select>
+          <div class="hint">关闭后网页端不再加密，文件以明文上传到服务器</div>
+        </div>
+        <button class="big" onclick="saveSettings()">保存设置</button>
+      </div>
+    </div>
+  </div>
 </div>
 
+<!-- 弹层：新增成员 / 改密码 -->
+<div class="mask" id="mask" onclick="if(event.target===this)closeSheet()">
+  <div class="sheet">
+    <h3 id="sheetTitle">添加家庭成员</h3>
+    <div class="fld"><label>用户名（登录用，英文/数字）</label><input id="mU" placeholder="例如 mama" autocapitalize="off"></div>
+    <div class="fld"><label>显示名称（给人看的）</label><input id="mD" placeholder="例如 妈妈"></div>
+    <div class="fld"><label>密码（至少 6 位）</label><input id="mP" type="password" placeholder="至少 6 位"></div>
+    <div class="fld" id="mAdminWrap"><label>权限</label>
+      <select id="mA"><option value="0">普通成员（只能打印）</option><option value="1">管理员（可管理全部）</option></select>
+    </div>
+    <button class="big" id="mSave" onclick="submitSheet()">确认添加</button>
+    <button class="btn btn-ghost" style="width:100%;padding:12px;margin-top:10px" onclick="closeSheet()">取消</button>
+  </div>
+</div>
 <script>
 let color=0,sides="one-sided",cur=0,timer=null;
 const $=i=>document.getElementById(i);
 const toast=m=>{const t=$("toast");t.textContent=m;t.style.display="block";setTimeout(()=>t.style.display="none",2600)};
 async function api(p,o={}){const r=await fetch(p,{credentials:"include",...o});
-  if(r.status==401){show("login");throw 0}
+  if(r.status==401){isAdmin=false;show("login");throw 0}
   const d=await r.json().catch(()=>({}));
   if(!r.ok)throw new Error(d.detail||"操作失败");
   return d}
@@ -158,7 +284,7 @@ $("f").onchange=e=>{const f=e.target.files[0];
   if(f){$("finfo").style.display="block";$("finfo").textContent="📎 "+f.name+"（"+(f.size/1048576).toFixed(1)+"MB）";$("st").hidden=true}};
 $("f").onclick=e=>e.stopPropagation();
 
-function show(id){for(const x of["login","main"])$(x).hidden=(x!=id)}
+function show(id){for(const x of["login","main","admin"])$(x).hidden=(x!=id)}
 async function login(){try{
   await api("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:$("u").value.trim(),password:$("p").value})});
   enter()}catch(e){e&&toast(e.message||"登录失败")}}
@@ -166,7 +292,12 @@ async function logout(){await api("/api/logout",{method:"POST"});show("login")}
 
 async function enter(){
   show("main");loadPrinters();loadJobs();
-  try{const me=await api("/api/me");$("hello").textContent=(me.display_name||me.username)+"，欢迎"}catch(e){}
+  try{
+    const me=await api("/api/me");
+    isAdmin=me.is_admin==1;
+    $("hello").textContent=(me.display_name||me.username)+"，欢迎";
+    $("adminLink").hidden=!isAdmin;
+  }catch(e){}
 }
 async function loadPrinters(){try{
   const l=await api("/api/printers");
@@ -231,6 +362,136 @@ async function loadJobs(){
   }catch(e){}
 }
 async function cancel(id){try{await api(`/api/print-jobs/${id}/cancel`,{method:"POST"});loadJobs();toast("已取消")}catch(e){toast(e.message)}}
+
+// ---------- 管理后台 ----------
+let isAdmin=false,sheetMode="add",sheetUid=0;
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtTs=t=>{if(!t)return "从未";const d=new Date(t*1000),p=n=>String(n).padStart(2,"0");
+  return `${d.getMonth()+1}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`};
+
+function openAdmin(){
+  if(!isAdmin)return toast("仅管理员可进入");
+  show("admin");switchPane("u");loadAdminUsers();loadAdminAgent();loadSettings();
+}
+function closeAdmin(){show("main");loadJobs()}
+function switchPane(p){
+  document.querySelectorAll("#adminTabs button").forEach(b=>b.classList.toggle("on",b.dataset.p==p));
+  document.querySelectorAll(".pane").forEach(el=>el.classList.toggle("on",el.id=="pane-"+p));
+  if(p=="j")loadAdminJobs();
+  if(p=="d")loadAdminAgent();
+  if(p=="s")loadSettings();
+}
+
+async function loadAdminUsers(){
+  try{
+    const list=await api("/api/admin/users");
+    $("userList").innerHTML=list.length?list.map(u=>{
+      const off=u.disabled==1, tags=[
+        u.is_admin==1?'<span class="tag admin">管理员</span>':"",
+        off?'<span class="tag dis">已停用</span>':"",
+        u.last_login?"":'<span class="tag off">从未登录</span>'
+      ].join("");
+      return `<div class="usr">
+        <div class="usr-top">
+          <div><div class="usr-name">${esc(u.display_name||u.username)}${tags}</div>
+          <div class="usr-meta">账号 ${esc(u.username)} · 打印 ${u.job_count} 次<br>最后登录 ${fmtTs(u.last_login)}</div></div>
+        </div>
+        <div class="usr-acts">
+          <button class="btn btn-ghost" onclick="openResetPw(${u.id},'${esc(u.username)}')">改密码</button>
+          <button class="btn ${off?"btn-ok":"btn-ghost"}" onclick="toggleUser(${u.id},${off?0:1})">${off?"启用":"停用"}</button>
+          <button class="btn btn-danger" onclick="delUser(${u.id},'${esc(u.username)}')">删除</button>
+        </div></div>`;
+    }).join(""):"<p class='empty'>还没有成员</p>";
+  }catch(e){$("userList").innerHTML="<p class='empty'>"+(e.message||"加载失败")+"</p>"}
+}
+
+function openAddUser(){
+  sheetMode="add";$("sheetTitle").textContent="添加家庭成员";
+  $("mU").value="";$("mD").value="";$("mP").value="";$("mA").value="0";
+  $("mU").disabled=false;$("mAdminWrap").style.display="block";
+  $("mSave").textContent="确认添加";$("mask").classList.add("show");
+}
+function openResetPw(id,name){
+  sheetMode="pw";sheetUid=id;$("sheetTitle").textContent="给「"+name+"」设置新密码";
+  $("mU").value=name;$("mU").disabled=true;$("mD").value="";$("mP").value="";
+  $("mAdminWrap").style.display="none";
+  $("mSave").textContent="保存新密码";$("mask").classList.add("show");
+}
+function closeSheet(){$("mask").classList.remove("show")}
+
+async function submitSheet(){
+  const pw=$("mP").value;
+  if(!pw||pw.length<6)return toast("密码至少 6 位");
+  try{
+    if(sheetMode=="add"){
+      const un=$("mU").value.trim();
+      if(un.length<2)return toast("用户名至少 2 位");
+      await api("/api/admin/users",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({username:un,password:pw,display_name:$("mD").value.trim(),is_admin:+$("mA").value})});
+      toast("已添加");
+    }else{
+      await api(`/api/admin/users/${sheetUid}/password`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:pw})});
+      toast("密码已更新");
+    }
+    closeSheet();loadAdminUsers();
+  }catch(e){toast(e.message||"操作失败")}
+}
+
+async function toggleUser(id,disabled){
+  try{
+    await api(`/api/admin/users/${id}/status`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({disabled})});
+    toast(disabled?"已停用":"已启用");loadAdminUsers();
+  }catch(e){toast(e.message)}
+}
+async function delUser(id,name){
+  if(!confirm(`确定删除「${name}」？\n该账号的打印记录和文件会一并删除，无法恢复。`))return;
+  try{await api(`/api/admin/users/${id}`,{method:"DELETE"});toast("已删除");loadAdminUsers()}catch(e){toast(e.message)}
+}
+
+async function loadAdminJobs(){
+  try{
+    const jobs=await api("/api/admin/jobs");
+    $("adminJobs").innerHTML=jobs.length?jobs.map(j=>
+      `<div class="jobline"><div style="min-width:0">
+        <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px">${esc(j.orig_name)}</div>
+        <div class="usr-meta"><span class="who">${esc(j.username)}</span> · ${esc(j.created_at)} · ${j.copies}份 · ${j.color?"彩色":"黑白"}</div>
+      </div><span class="badge ${{queued:"q",processing:"p",completed:"c",canceled:"x",failed:"x"}[j.status]||"q"}">${TXT[j.status]||esc(j.status)}</span></div>`
+    ).join(""):"<p class='empty'>还没有打印记录</p>";
+  }catch(e){$("adminJobs").innerHTML="<p class='empty'>"+(e.message||"加载失败")+"</p>"}
+}
+
+async function loadAdminAgent(){
+  try{
+    const d=await api("/api/admin/agent");
+    $("dTotal").textContent=d.total_jobs;$("d24").textContent=d.jobs_24h;
+    $("dOn").innerHTML=`<span class="dot ${d.online?"on":"off"}"></span>${d.online?"在线":"离线"}`;
+    $("dPrinters").innerHTML=d.printers&&d.printers.length
+      ?"打印机："+d.printers.map(p=>esc(p.name)+"（"+(p.status=="online"?"正常":"离线")+"）").join("、")
+      :"打印机：尚未上报（家庭端连上后会自动上报）";
+  }catch(e){}
+}
+async function kickAgent(){
+  if(!confirm("确定强制断开家庭端连接？\n家庭端约 30 秒后会自动重连。"))return;
+  try{await api("/api/admin/agent/kick",{method:"POST"});toast("已断开，等待重连");setTimeout(loadAdminAgent,3000)}catch(e){toast(e.message)}
+}
+
+async function loadSettings(){
+  try{
+    const s=await api("/api/admin/settings");
+    $("sLimit").value=s.daily_limit;$("sDays").value=s.session_days;$("sE2EE").value=s.allow_e2ee?"1":"0";
+  }catch(e){}
+}
+async function saveSettings(){
+  const l=+$("sLimit").value,d=+$("sDays").value;
+  if(!(l>=1&&l<=999))return toast("每日上限需在 1-999 之间");
+  if(!(d>=1&&d<=365))return toast("会话天数需在 1-365 之间");
+  try{
+    const r=await api("/api/admin/settings",{method:"PUT",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({daily_limit:l,session_days:d,allow_e2ee:$("sE2EE").value=="1"})});
+    $("sLimit").value=r.daily_limit;$("sDays").value=r.session_days;
+    toast("设置已保存，立即生效");
+  }catch(e){toast(e.message)}
+}
 
 (async()=>{
   if(navigator.userAgent.toLowerCase().includes("micromessenger")){
