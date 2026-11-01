@@ -315,6 +315,7 @@ fp-cloud -secret 你的会话密钥 -token 你的设备token -data /var/lib/fami
 | `-data` | 数据目录 | `data` |
 | `-listen` | 监听地址 | `:8000` |
 | `-session-days` | 会话有效天数 | `30` |
+| `-job-timeout` | 任务超时分钟数：家庭端离线超过该时长仍未回报，任务判失败 | `5` |
 
 ### 附录 B · 云端开机自启（systemd）
 
