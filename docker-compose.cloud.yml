@@ -15,10 +15,18 @@ services:
       - DEVICE_TOKEN=请设置设备token_与家庭端一致
       - DATA_DIR=/app/data
       - LISTEN=:8000
+      # 日志级别：debug（最详细）/ info（默认）/ warn / error
+      - LOG_LEVEL=info
     volumes:
       - cloud-data:/app/data
     ports:
       - "8000:8000"   # 服务端 HTTP 端口，供外部反向代理回源使用
+    # 日志自动轮转：防止长期运行日志占满磁盘
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   cloud-data:
