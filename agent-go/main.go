@@ -20,6 +20,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -62,6 +63,13 @@ func envOr(k, d string) string {
 	return d
 }
 
+// ippClient：必须设置超时。家用打印机断网/假死时，若用默认 client 会无限期挂起，
+// 导致任务永远停在"打印中"、心跳 goroutine 被拖住。
+var ippClient = &http.Client{Timeout: 120 * time.Second}
+
+// probeClient：探活要快，避免拖慢心跳（30s 一次）。
+var probeClient = &http.Client{Timeout: 4 * time.Second}
+
 type wsConn struct {
 	conn *websocket.Conn
 	mu   chan struct{} // 串行化写
@@ -84,6 +92,15 @@ type jobMsg struct {
 		Sides  string `json:"sides"`
 		Paper  string `json:"paper"`
 	} `json:"params"`
+}
+
+// fileSize: 取已打开文件的字节数（用于给 IPP 请求设置 Content-Length，
+// 否则 httputil 会用 chunked 编码，部分打印机不接受）
+func fileSize(f *os.File) int64 {
+	if st, err := f.Stat(); err == nil {
+		return st.Size()
+	}
+	return 0
 }
 
 // ippPrint: IPP Print-Job 直连打印机
@@ -136,7 +153,8 @@ func ippPrint(path, jobName string, p jobMsg) error {
 	}
 	httpReq.Header.Set("Content-Type", goipp.ContentType)
 	httpReq.Header.Set("Accept", goipp.ContentType)
-	rsp, err := http.DefaultClient.Do(httpReq)
+	httpReq.ContentLength = int64(len(payload)) + fileSize(f)
+	rsp, err := ippClient.Do(httpReq)
 	if err != nil {
 		return fmt.Errorf("打印机连接失败: %w", err)
 	}
@@ -155,6 +173,16 @@ func ippPrint(path, jobName string, p jobMsg) error {
 	return nil
 }
 
+// printQueue：家用打印机是独占设备，必须串行。并发向同一台打印机发 IPP，
+// 会导致乱序、卡纸、甚至任务互相顶掉。
+var printQueue = make(chan func(), 64)
+
+func printWorker() {
+	for task := range printQueue {
+		task()
+	}
+}
+
 func handleJob(ws *wsConn, raw []byte) {
 	var msg jobMsg
 	if err := json.Unmarshal(raw, &msg); err != nil || msg.Type != "job" {
@@ -166,25 +194,53 @@ func handleJob(ws *wsConn, raw []byte) {
 		return
 	}
 	printName, printData := msg.Filename, data
-	if e2eeKey != "" && strings.HasSuffix(msg.Filename, ".enc") {
+	if strings.HasSuffix(strings.ToLower(msg.Filename), ".enc") {
+		// 是密文：必须解密后再打印。
+		// 若家庭端没配密钥，绝不能把密文当明文送打印机（会打出一堆乱码纸，且误报成功）。
+		if e2eeKey == "" {
+			ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "failed",
+				"error": "收到加密文件，但家庭端未配置家庭密钥，请用 -key 参数配置后重试"})
+			log.Printf("任务 #%d 为加密文件，但未配置 -key，已拒绝打印", msg.JobID)
+			return
+		}
 		name, dec, err := e2eeDecrypt(data)
 		if err != nil {
-			ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "failed", "error": "端到端解密失败（家庭密钥不匹配?）"})
+			ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "failed",
+				"error": "端到端解密失败（家庭密钥不匹配，请核对 -key 与网页端输入的密钥）"})
 			return
 		}
 		printName, printData = name, dec
 		log.Printf("任务 #%d 已解密: %s (%dKB)", msg.JobID, name, len(dec)/1024)
 	}
-	tmp := filepath.Join(os.TempDir(), fmt.Sprintf("fp_%d_%s", msg.JobID, printName))
-	os.WriteFile(tmp, printData, 0600)
-	log.Printf("任务 #%d 收到: %s (%dKB)", msg.JobID, printName, len(printData)/1024)
+	// 入队串行处理：先回 processing，避免用户在队列里看不到排队
 	ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "processing"})
-	if err := ippPrint(tmp, printName, msg); err != nil {
+	select {
+	case printQueue <- func() { runPrint(ws, msg, printName, printData) }:
+	default:
+		ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "failed",
+			"error": "打印队列已满，请稍后重试"})
+	}
+}
+
+// runPrint 在工作协程里串行执行真正的打印
+func runPrint(ws *wsConn, msg jobMsg, printName string, printData []byte) {
+	// 文件名来自用户上传，必须净化，防止 ../ 路径穿越覆盖系统文件
+	safeName := filepath.Base(strings.ReplaceAll(printName, "\\", "/"))
+	if safeName == "" || safeName == "." || safeName == "/" {
+		safeName = fmt.Sprintf("job%d.pdf", msg.JobID)
+	}
+	tmp := filepath.Join(os.TempDir(), fmt.Sprintf("fp_%d_%s", msg.JobID, safeName))
+	if err := os.WriteFile(tmp, printData, 0600); err != nil {
+		ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "failed", "error": "临时文件写入失败"})
+		return
+	}
+	defer os.Remove(tmp) // 用完即删
+	log.Printf("任务 #%d 开始打印: %s (%dKB)", msg.JobID, safeName, len(printData)/1024)
+	if err := ippPrint(tmp, safeName, msg); err != nil {
 		ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "failed", "error": err.Error()})
 	} else {
 		ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "completed"})
 	}
-	os.Remove(tmp) // 用完即删
 }
 
 // ---------- 端到端加密（与浏览器 WebCrypto 对齐）----------
@@ -231,15 +287,31 @@ func e2eeDecrypt(blob []byte) (string, []byte, error) {
 	return inner.N, raw, nil
 }
 
+// reportPrinters：探活打印机并上报状态。
+// 用 Get-Printer-Attributes 更准确；部分老打印机不支持，退化为 TCP 连通性判断。
 func reportPrinters(ws *wsConn) {
 	status := "online"
 	if !mock {
-		u := strings.Replace(printerURI, "ipp://", "http://", 1)
-		rsp, err := http.Post(u, goipp.ContentType, bytes.NewReader(nil))
-		if err != nil {
+		httpURL := strings.Replace(printerURI, "ipp://", "http://", 1)
+		req := goipp.NewRequest(goipp.DefaultVersion, goipp.OpGetPrinterAttributes, 1)
+		req.Operation.Add(goipp.MakeAttribute("attributes-charset", goipp.TagCharset, goipp.String("utf-8")))
+		req.Operation.Add(goipp.MakeAttribute("attributes-natural-language", goipp.TagLanguage, goipp.String("zh-CN")))
+		req.Operation.Add(goipp.MakeAttribute("printer-uri", goipp.TagURI, goipp.String(printerURI)))
+		req.Operation.Add(goipp.MakeAttribute("requested-attributes", goipp.TagKeyword, goipp.String("printer-state")))
+		payload, encErr := req.EncodeBytes()
+		if encErr != nil {
 			status = "offline"
 		} else {
-			rsp.Body.Close()
+			rsp, err := probeClient.Post(httpURL, goipp.ContentType, bytes.NewReader(payload))
+			if err != nil {
+				status = "offline"
+			} else {
+				rsp.Body.Close()
+				// 只要打印机在 HTTP 层有响应（含 4xx/5xx 的 IPP 错误），就说明设备在线
+				if rsp.StatusCode/100 == 5 {
+					status = "offline"
+				}
+			}
 		}
 	}
 	ws.send(map[string]interface{}{"type": "printers", "list": []map[string]string{{"name": printerName, "status": status}}})
@@ -270,6 +342,8 @@ func connectOnce(rawURL string, quit chan struct{}) error {
 
 	// 心跳
 	done := make(chan struct{})
+	var doneOnce sync.Once
+	stop := func() { doneOnce.Do(func() { close(done) }) }
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
@@ -279,7 +353,7 @@ func connectOnce(rawURL string, quit chan struct{}) error {
 				deadline := time.Now().Add(10 * time.Second)
 				if err := conn.WriteControl(websocket.PingMessage, nil, deadline); err != nil {
 					conn.Close()
-					close(done)
+					stop()
 					return
 				}
 				reportPrinters(ws)
@@ -288,11 +362,11 @@ func connectOnce(rawURL string, quit chan struct{}) error {
 			}
 		}
 	}()
+	defer stop() // 无论从哪条路径退出，都保证只关一次
 
 	for {
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
-			close(done)
 			return err
 		}
 		var m jobMsg
@@ -316,6 +390,7 @@ func main() {
 		os.Exit(0)
 	}()
 	log.Printf("FamilyPrint-Agent 启动 | 云端: %v | 打印机: %s | MOCK=%v", cloudURLs, printerURI, mock)
+	go printWorker() // 打印串行队列
 	backoff := 2 * time.Second
 	for {
 		for _, u := range cloudURLs {
