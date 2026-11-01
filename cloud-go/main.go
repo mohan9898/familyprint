@@ -75,25 +75,67 @@ func initDB() {
 	CREATE TABLE IF NOT EXISTS users(
 	  id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE NOT NULL,
 	  password_hash TEXT NOT NULL, display_name TEXT, is_admin INTEGER DEFAULT 0,
-	  failed INTEGER DEFAULT 0, locked_until REAL DEFAULT 0);
+	  failed INTEGER DEFAULT 0, locked_until REAL DEFAULT 0,
+	  disabled INTEGER DEFAULT 0, last_login REAL DEFAULT 0, created_at REAL DEFAULT 0);
 	CREATE TABLE IF NOT EXISTS print_jobs(
 	  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL,
 	  file_path TEXT NOT NULL, orig_name TEXT NOT NULL, printer_name TEXT NOT NULL,
 	  copies INTEGER DEFAULT 1, color INTEGER DEFAULT 0, sides TEXT DEFAULT 'one-sided',
 	  paper TEXT DEFAULT 'A4', status TEXT DEFAULT 'queued', error TEXT,
 	  created_at REAL, updated_at REAL, purged INTEGER DEFAULT 0);
+	CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY, v TEXT);
 	`
 	if _, err := db.Exec(schema); err != nil {
 		log.Fatal(err)
 	}
+	// 老库升级：补齐新增列（已存在则忽略错误）
+	for _, ddl := range []string{
+		"ALTER TABLE users ADD COLUMN disabled INTEGER DEFAULT 0",
+		"ALTER TABLE users ADD COLUMN last_login REAL DEFAULT 0",
+		"ALTER TABLE users ADD COLUMN created_at REAL DEFAULT 0",
+	} {
+		db.Exec(ddl)
+	}
 	var n int
 	db.QueryRow("SELECT COUNT(*) FROM users").Scan(&n)
 	if n == 0 {
-		db.Exec("INSERT INTO users(username,password_hash,display_name,is_admin) VALUES(?,?,?,1)",
-			"admin", hashPW("admin123", ""), "管理员")
+		db.Exec("INSERT INTO users(username,password_hash,display_name,is_admin,created_at) VALUES(?,?,?,1,?)",
+			"admin", hashPW("admin123", ""), "管理员", float64(time.Now().Unix()))
 		log.Println("已创建默认管理员 admin/admin123（请尽快修改）")
 	}
 }
+
+// ---------- 系统设置（数据库覆盖命令行默认值，管理员可网页修改）----------
+func getSetting(k, def string) string {
+	var v string
+	if db.QueryRow("SELECT v FROM settings WHERE k=?", k).Scan(&v) == nil && v != "" {
+		return v
+	}
+	return def
+}
+
+func setSetting(k, v string) {
+	db.Exec("INSERT OR REPLACE INTO settings(k,v) VALUES(?,?)", k, v)
+}
+
+// 运行时生效值：数据库设置优先，否则用启动参数/环境变量
+func effDailyLimit() int {
+	n, err := strconv.Atoi(getSetting("daily_limit", dailyLimit))
+	if err != nil || n < 0 {
+		n = 30
+	}
+	return n
+}
+
+func effSessionDays() int {
+	n, err := strconv.Atoi(getSetting("session_days", sessionDays))
+	if err != nil || n < 1 {
+		n = 30
+	}
+	return n
+}
+
+func effAllowE2EE() bool { return getSetting("allow_e2ee", "1") != "0" }
 
 // ---------- 口令（兼容 Python 版 pbkdf2 格式 salt$hash）----------
 func hashPW(pw, salt string) string {
@@ -143,7 +185,7 @@ func checkPW(pw, stored string) bool {
 
 // ---------- 会话（签名 Cookie，兼容 Python 版格式 uid.exp.sig）----------
 func makeToken(uid int64) string {
-	days, _ := strconv.Atoi(sessionDays)
+	days := effSessionDays()
 	exp := time.Now().Add(time.Duration(days) * 24 * time.Hour).Unix()
 	payload := fmt.Sprintf("%d.%d", uid, exp)
 	mac := hmacSHA256([]byte(secretKey), []byte(payload))
@@ -185,15 +227,15 @@ func currentUser(r *http.Request) *user {
 	}
 	var u user
 	var name, disp string
-	var admin int
-	err = db.QueryRow("SELECT username, COALESCE(display_name,''), is_admin FROM users WHERE id=?", uid).
-		Scan(&name, &disp, &admin)
-	if err != nil {
+	var admin, disabled int
+	// 停用账号：已签发的 Cookie 一并失效，防止被停用后仍能继续打印
+	err = db.QueryRow("SELECT username, COALESCE(display_name,''), is_admin, COALESCE(disabled,0) FROM users WHERE id=?", uid).
+		Scan(&name, &disp, &admin, &disabled)
+	if err != nil || disabled == 1 {
 		return nil
 	}
 	u = user{ID: uid, Username: name, DisplayName: disp, IsAdmin: admin}
-	_ = u.Username
-	return &user{ID: uid, Username: name, DisplayName: disp, IsAdmin: admin}
+	return &u
 }
 
 // ---------- Agent WS 通道 ----------
@@ -336,12 +378,16 @@ func apiLogin(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&body)
 	var id int64
 	var hash, disp string
-	var admin, failed int
+	var admin, failed, disabled int
 	var locked float64
-	err := db.QueryRow("SELECT id, password_hash, COALESCE(display_name,''), is_admin, failed, locked_until FROM users WHERE username=?",
-		body.Username).Scan(&id, &hash, &disp, &admin, &failed, &locked)
+	err := db.QueryRow("SELECT id, password_hash, COALESCE(display_name,''), is_admin, failed, locked_until, COALESCE(disabled,0) FROM users WHERE username=?",
+		body.Username).Scan(&id, &hash, &disp, &admin, &failed, &locked, &disabled)
 	if err == sql.ErrNoRows {
 		jsonErr(w, 401, "用户名或密码错误")
+		return
+	}
+	if disabled == 1 {
+		jsonErr(w, 403, "该账号已被管理员停用")
 		return
 	}
 	if locked > float64(time.Now().Unix()) {
@@ -358,8 +404,9 @@ func apiLogin(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, 401, "用户名或密码错误")
 		return
 	}
-	db.Exec("UPDATE users SET failed=0, locked_until=0 WHERE id=?", id)
-	days, _ := strconv.Atoi(sessionDays)
+	now := float64(time.Now().Unix())
+	db.Exec("UPDATE users SET failed=0, locked_until=0, last_login=? WHERE id=?", now, id)
+	days := effSessionDays()
 	http.SetCookie(w, &http.Cookie{
 		Name: "fp_session", Value: makeToken(id), Path: "/",
 		MaxAge: days * 86400, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: true})
@@ -429,6 +476,10 @@ func apiCreateJob(w http.ResponseWriter, r *http.Request) {
 		jsonErr(w, 400, "不支持的文件类型，仅支持：.docx, .jpg, .jpeg, .pdf, .png, .txt")
 		return
 	}
+	if ext == ".enc" && !effAllowE2EE() {
+		jsonErr(w, 400, "管理员已关闭端到端加密上传，请关闭加密后重试")
+		return
+	}
 	printer := r.FormValue("printer")
 	if printer == "" {
 		printer = "家里打印机"
@@ -449,8 +500,8 @@ func apiCreateJob(w http.ResponseWriter, r *http.Request) {
 	if paper == "" {
 		paper = "A4"
 	}
-	// 每日限额
-	limit, _ := strconv.Atoi(dailyLimit)
+	// 每日限额（管理员可在网页端调整，实时生效）
+	limit := effDailyLimit()
 	var n int
 	db.QueryRow("SELECT COUNT(*) FROM print_jobs WHERE user_id=? AND created_at>?", u.ID, float64(time.Now().Add(-24*time.Hour).Unix())).Scan(&n)
 	if n >= limit {
@@ -545,6 +596,289 @@ func apiAgentStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]bool{"online": on})
 }
 
+// ---------- 管理员 API ----------
+// requireAdmin：先校验登录，再校验管理员身份；普通用户返回 403
+func requireAdmin(w http.ResponseWriter, r *http.Request) *user {
+	u := currentUser(r)
+	if u == nil {
+		jsonErr(w, 401, "未登录")
+		return nil
+	}
+	if u.IsAdmin != 1 {
+		jsonErr(w, 403, "需要管理员权限")
+		return nil
+	}
+	return u
+}
+
+func jsonOK(w http.ResponseWriter) {
+	json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+}
+
+// 账号列表
+func apiAdminUsers(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
+	rows, err := db.Query(`SELECT id, username, COALESCE(display_name,''), is_admin,
+		COALESCE(disabled,0), COALESCE(last_login,0), COALESCE(created_at,0) FROM users ORDER BY id`)
+	if err != nil {
+		jsonErr(w, 500, "查询失败")
+		return
+	}
+	defer rows.Close()
+	list := []map[string]interface{}{}
+	for rows.Next() {
+		var id, admin, disabled int64
+		var uname, disp string
+		var lastLogin, createdAt float64
+		rows.Scan(&id, &uname, &disp, &admin, &disabled, &lastLogin, &createdAt)
+		var jobs int64
+		db.QueryRow("SELECT COUNT(*) FROM print_jobs WHERE user_id=?", id).Scan(&jobs)
+		list = append(list, map[string]interface{}{
+			"id": id, "username": uname, "display_name": disp, "is_admin": admin,
+			"disabled": disabled, "last_login": lastLogin, "created_at": createdAt,
+			"job_count": jobs})
+	}
+	json.NewEncoder(w).Encode(list)
+}
+
+// 新增成员
+func apiAdminCreateUser(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
+	var body struct {
+		Username    string `json:"username"`
+		Password    string `json:"password"`
+		DisplayName string `json:"display_name"`
+		IsAdmin     int    `json:"is_admin"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	body.Username = strings.TrimSpace(body.Username)
+	if len(body.Username) < 2 || len(body.Username) > 32 {
+		jsonErr(w, 400, "用户名长度需为 2-32 位")
+		return
+	}
+	if len(body.Password) < 6 {
+		jsonErr(w, 400, "密码至少 6 位")
+		return
+	}
+	res, err := db.Exec("INSERT INTO users(username,password_hash,display_name,is_admin,created_at) VALUES(?,?,?,?,?)",
+		body.Username, hashPW(body.Password, ""), body.DisplayName, body.IsAdmin, float64(time.Now().Unix()))
+	if err != nil {
+		jsonErr(w, 400, "用户名已存在")
+		return
+	}
+	id, _ := res.LastInsertId()
+	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true, "id": id})
+}
+
+// 重置密码
+func apiAdminResetPW(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
+	var uid int64
+	fmt.Sscanf(r.PathValue("id"), "%d", &uid)
+	var body struct {
+		Password string `json:"password"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if len(body.Password) < 6 {
+		jsonErr(w, 400, "密码至少 6 位")
+		return
+	}
+	res, err := db.Exec("UPDATE users SET password_hash=?, failed=0, locked_until=0 WHERE id=?",
+		hashPW(body.Password, ""), uid)
+	if n, _ := res.RowsAffected(); err != nil || n == 0 {
+		jsonErr(w, 404, "用户不存在")
+		return
+	}
+	jsonOK(w)
+}
+
+// 启用 / 停用
+func apiAdminToggleUser(w http.ResponseWriter, r *http.Request) {
+	me := requireAdmin(w, r)
+	if me == nil {
+		return
+	}
+	var uid int64
+	fmt.Sscanf(r.PathValue("id"), "%d", &uid)
+	if uid == me.ID {
+		jsonErr(w, 400, "不能停用自己的账号")
+		return
+	}
+	var body struct {
+		Disabled int `json:"disabled"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	v := 0
+	if body.Disabled == 1 {
+		v = 1
+	}
+	if _, err := db.Exec("UPDATE users SET disabled=? WHERE id=?", v, uid); err != nil {
+		jsonErr(w, 500, "操作失败")
+		return
+	}
+	jsonOK(w)
+}
+
+// 删除成员（连带清理其打印记录与残留文件）
+func apiAdminDeleteUser(w http.ResponseWriter, r *http.Request) {
+	me := requireAdmin(w, r)
+	if me == nil {
+		return
+	}
+	var uid int64
+	fmt.Sscanf(r.PathValue("id"), "%d", &uid)
+	if uid == me.ID {
+		jsonErr(w, 400, "不能删除自己的账号")
+		return
+	}
+	rows, err := db.Query("SELECT file_path FROM print_jobs WHERE user_id=?", uid)
+	if err == nil {
+		var paths []string
+		for rows.Next() {
+			var p string
+			rows.Scan(&p)
+			paths = append(paths, p)
+		}
+		rows.Close()
+		for _, p := range paths {
+			os.Remove(p)
+		}
+	}
+	db.Exec("DELETE FROM print_jobs WHERE user_id=?", uid)
+	if _, err := db.Exec("DELETE FROM users WHERE id=?", uid); err != nil {
+		jsonErr(w, 500, "删除失败")
+		return
+	}
+	jsonOK(w)
+}
+
+// 全部打印记录（最近 200 条，可按用户过滤）
+func apiAdminJobs(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
+	q := `SELECT j.id, j.user_id, COALESCE(u.username,'-'), j.orig_name, j.printer_name,
+		j.copies, j.color, j.sides, j.paper, j.status, COALESCE(j.error,''), j.created_at
+		FROM print_jobs j LEFT JOIN users u ON u.id=j.user_id`
+	args := []interface{}{}
+	if uid := r.URL.Query().Get("user_id"); uid != "" {
+		q += " WHERE j.user_id=?"
+		args = append(args, uid)
+	}
+	q += " ORDER BY j.id DESC LIMIT 200"
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		jsonErr(w, 500, "查询失败")
+		return
+	}
+	defer rows.Close()
+	jobs := []map[string]interface{}{}
+	for rows.Next() {
+		var id, uid, copies, color int64
+		var uname, name, printerName, sides, paper, status, errMsg string
+		var createdRaw float64
+		rows.Scan(&id, &uid, &uname, &name, &printerName, &copies, &color, &sides, &paper, &status, &errMsg, &createdRaw)
+		jobs = append(jobs, map[string]interface{}{
+			"id": id, "user_id": uid, "username": uname, "orig_name": name,
+			"printer_name": printerName, "copies": copies, "color": color,
+			"sides": sides, "paper": paper, "status": status, "error": errMsg,
+			"created_at": time.Unix(int64(createdRaw), 0).Format("2006-01-02 15:04")})
+	}
+	json.NewEncoder(w).Encode(jobs)
+}
+
+// 设备状态
+func apiAdminAgent(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
+	agentMu.Lock()
+	on := agentConn != nil
+	agentMu.Unlock()
+	var total, today int64
+	db.QueryRow("SELECT COUNT(*) FROM print_jobs").Scan(&total)
+	db.QueryRow("SELECT COUNT(*) FROM print_jobs WHERE created_at>?", float64(time.Now().Add(-24*time.Hour).Unix())).Scan(&today)
+	var printers []map[string]string
+	rows, err := db.Query("SELECT name, status FROM printers")
+	if err == nil {
+		for rows.Next() {
+			var n, s string
+			rows.Scan(&n, &s)
+			printers = append(printers, map[string]string{"name": n, "status": s})
+		}
+		rows.Close()
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"online": on, "total_jobs": total, "jobs_24h": today, "printers": printers})
+}
+
+// 强制断开局域网设备连接（家庭端会自动重连）
+func apiAdminKickAgent(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
+	agentMu.Lock()
+	if agentConn != nil {
+		agentConn.Close()
+		agentConn = nil
+	}
+	agentMu.Unlock()
+	jsonOK(w)
+}
+
+// 读取系统设置
+func apiAdminGetSettings(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"daily_limit": effDailyLimit(), "session_days": effSessionDays(),
+		"allow_e2ee": effAllowE2EE()})
+}
+
+// 保存系统设置
+func apiAdminPutSettings(w http.ResponseWriter, r *http.Request) {
+	if requireAdmin(w, r) == nil {
+		return
+	}
+	var body struct {
+		DailyLimit  *int  `json:"daily_limit"`
+		SessionDays *int  `json:"session_days"`
+		AllowE2EE   *bool `json:"allow_e2ee"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+	if body.DailyLimit != nil {
+		if *body.DailyLimit < 1 || *body.DailyLimit > 999 {
+			jsonErr(w, 400, "每日上限需在 1-999 之间")
+			return
+		}
+		setSetting("daily_limit", strconv.Itoa(*body.DailyLimit))
+	}
+	if body.SessionDays != nil {
+		if *body.SessionDays < 1 || *body.SessionDays > 365 {
+			jsonErr(w, 400, "会话天数需在 1-365 之间")
+			return
+		}
+		setSetting("session_days", strconv.Itoa(*body.SessionDays))
+	}
+	if body.AllowE2EE != nil {
+		if *body.AllowE2EE {
+			setSetting("allow_e2ee", "1")
+		} else {
+			setSetting("allow_e2ee", "0")
+		}
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok": true, "daily_limit": effDailyLimit(), "session_days": effSessionDays(),
+		"allow_e2ee": effAllowE2EE()})
+}
+
 // 每小时清理：完成/取消超 24h 的残留文件
 func cleanupLoop() {
 	for {
@@ -580,6 +914,17 @@ func main() {
 	mux.HandleFunc("GET /api/print-jobs", apiListJobs)
 	mux.HandleFunc("POST /api/print-jobs/{id}/cancel", apiCancelJob)
 	mux.HandleFunc("GET /api/agent-status", apiAgentStatus)
+	// 管理员
+	mux.HandleFunc("GET /api/admin/users", apiAdminUsers)
+	mux.HandleFunc("POST /api/admin/users", apiAdminCreateUser)
+	mux.HandleFunc("PUT /api/admin/users/{id}/password", apiAdminResetPW)
+	mux.HandleFunc("PUT /api/admin/users/{id}/status", apiAdminToggleUser)
+	mux.HandleFunc("DELETE /api/admin/users/{id}", apiAdminDeleteUser)
+	mux.HandleFunc("GET /api/admin/jobs", apiAdminJobs)
+	mux.HandleFunc("GET /api/admin/agent", apiAdminAgent)
+	mux.HandleFunc("POST /api/admin/agent/kick", apiAdminKickAgent)
+	mux.HandleFunc("GET /api/admin/settings", apiAdminGetSettings)
+	mux.HandleFunc("PUT /api/admin/settings", apiAdminPutSettings)
 	mux.HandleFunc("/ws/agent", wsAgent)
 	staticSub, _ := fs.Sub(staticFS, "static")
 	mux.Handle("/", http.FileServer(http.FS(staticSub)))
