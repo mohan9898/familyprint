@@ -220,6 +220,23 @@ a{cursor:pointer}
 .jobline{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--line);font-size:13.5px}
 .jobline:last-child{border:0}
 .jobline .who{color:var(--main-deep);font-weight:600;font-size:12.5px}
+
+/* ---------- 运行环境切换 ---------- */
+.env-badge{padding:3px 10px;border-radius:99px;font-size:11.5px;font-weight:600;background:#f2f3f6;color:var(--t2)}
+.env-badge.prod{background:#e6f6ee;color:#1c7c53}
+.env-badge.test{background:#fff2e3;color:#a05a13}
+.mode-switch{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.mode-switch button{
+  border:1.5px solid var(--line);background:#fafbfd;border-radius:14px;padding:13px 12px;text-align:left;
+  transition:.2s;display:flex;flex-direction:column;gap:4px;
+}
+.mode-switch button b{font-size:14px;color:var(--t1);font-weight:700}
+.mode-switch button span{font-size:11.5px;color:var(--t3);line-height:1.45}
+.mode-switch button.on{border-color:var(--main);background:#f2f6ff;box-shadow:0 0 0 3px rgba(79,124,255,.1)}
+.mode-switch button.on b{color:var(--main-deep)}
+.mode-tip{font-size:12.5px;color:var(--t2);background:#f7f9fd;border-radius:11px;padding:11px 13px;line-height:1.65}
+.mode-tip.warn{background:#fff9ec;color:#8a6116}
+.mode-tip.ok{background:#f0fbf4;color:#1c7c53}
 </style>
 </head>
 <body>
@@ -373,6 +390,19 @@ a{cursor:pointer}
 
     <!-- 设置 -->
     <div class="pane" id="pane-s">
+      <div class="card">
+        <div class="sec-head"><h3>运行环境</h3><span class="env-badge" id="envBadge">测试</span></div>
+        <div class="mode-switch" id="modeSwitch">
+          <button data-m="test" class="on" onclick="pickMode('test')">
+            <b>测试环境</b><span>允许 HTTP 直连，内网/自用方便</span>
+          </button>
+          <button data-m="prod" onclick="pickMode('prod')">
+            <b>生产环境</b><span>强制 HTTPS，拒绝明文访问</span>
+          </button>
+        </div>
+        <div class="mode-tip" id="modeTip">当前为测试环境：浏览器用 http 访问也能登录。仅建议内网或调试时使用。</div>
+      </div>
+
       <div class="card">
         <div class="sec-head"><h3>系统设置</h3></div>
         <div class="fld">
@@ -722,18 +752,59 @@ async function loadSettings(){
   try{
     const s=await api("/api/admin/settings");
     $("sLimit").value=s.daily_limit;$("sDays").value=s.session_days;$("sE2EE").value=s.allow_e2ee?"1":"0";
+    applyMode(s.run_mode);
   }catch(e){}
+}
+
+// 运行环境（测试/生产）本地状态：切换是先选、再点保存才提交
+let pickedMode="test", savedMode="test";
+function applyMode(m){
+  savedMode=pickedMode=m||"test";
+  const prod=m=="prod";
+  document.querySelectorAll("#modeSwitch button").forEach(b=>b.classList.toggle("on",b.dataset.m==m));
+  const badge=$("envBadge");
+  badge.textContent=prod?"生产":"测试";
+  badge.className="env-badge "+(prod?"prod":"test");
+  const tip=$("modeTip");
+  if(prod){
+    tip.className="mode-tip ok";
+    tip.innerHTML="当前为<b>生产环境</b>：只接受 HTTPS 访问，HTTP 请求会自动跳转到 https，会话 cookie 强制 Secure。适合公网对外使用。";
+  }else{
+    tip.className="mode-tip warn";
+    tip.innerHTML="当前为<b>测试环境</b>：浏览器用 http 访问也能登录。密码和数据在局域网内为明文传输，仅建议内网/调试使用。";
+  }
+}
+function pickMode(m){
+  pickedMode=m;
+  document.querySelectorAll("#modeSwitch button").forEach(b=>b.classList.toggle("on",b.dataset.m==m));
+  if(m==savedMode){applyMode(m);return}
+  const tip=$("modeTip");
+  if(m=="prod"){
+    tip.className="mode-tip ok";
+    tip.innerHTML="即将切换为<b>生产环境</b>：保存后所有 HTTP 访问会被跳转到 https，家庭端也必须用 wss:// 连接。<b>请先确认 HTTPS 反代已生效</b>，否则可能无法打开页面。";
+  }else{
+    tip.className="mode-tip warn";
+    tip.innerHTML="即将切换为<b>测试环境</b>：保存后允许 http 明文访问，方便本地调试。正式对外时请记得切回生产环境。";
+  }
 }
 async function saveSettings(){
   const l=+$("sLimit").value,d=+$("sDays").value;
   if(!(l>=1&&l<=999))return toast("每日上限需在 1-999 之间");
   if(!(d>=1&&d<=365))return toast("会话天数需在 1-365 之间");
+  if(pickedMode=="prod"&&savedMode!="prod"&&
+     !confirm("切换到生产环境后，只能用 HTTPS 访问本页。\n确认 HTTPS 反代已配置好并且可以正常打开 https:// 域名吗？")){
+    applyMode(savedMode);return;
+  }
   try{
     const r=await api("/api/admin/settings",{method:"PUT",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({daily_limit:l,session_days:d,allow_e2ee:$("sE2EE").value=="1"})});
+      body:JSON.stringify({daily_limit:l,session_days:d,allow_e2ee:$("sE2EE").value=="1",run_mode:pickedMode})});
     $("sLimit").value=r.daily_limit;$("sDays").value=r.session_days;
-    toast("设置已保存，立即生效");
-  }catch(e){toast(e.message)}
+    applyMode(r.run_mode);
+    toast(r.run_mode=="prod"?"已切换为生产环境（强制 HTTPS）":"已切换为测试环境（允许 HTTP）");
+  }catch(e){
+    applyMode(savedMode);   // 保存失败时回滚选中状态，避免界面显示与实际不一致
+    toast(e.message||"保存失败");
+  }
 }
 
 (async()=>{

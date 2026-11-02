@@ -197,6 +197,18 @@ func effSessionDays() int {
 
 func effAllowE2EE() bool { return getSetting("allow_e2ee", "1") != "0" }
 
+// effRunMode：运行模式，test=测试环境（允许 HTTP）/ prod=生产环境（强制 HTTPS）。
+// 默认 test，方便内网/本地直接跑；正式对外提供服务时应设为 prod。
+func effRunMode() string {
+	if getSetting("run_mode", "test") == "prod" {
+		return "prod"
+	}
+	return "test"
+}
+
+// effForceHTTPS：生产模式下强制 HTTPS（HTTP 请求 301 跳转、cookie 强制 Secure）
+func effForceHTTPS() bool { return effRunMode() == "prod" }
+
 // ---------- 口令（兼容 Python 版 pbkdf2 格式 salt$hash）----------
 func hashPW(pw, salt string) string {
 	if salt == "" {
@@ -634,17 +646,19 @@ func apiLogin(w http.ResponseWriter, r *http.Request) {
 	now := float64(time.Now().Unix())
 	db.Exec("UPDATE users SET failed=0, locked_until=0, last_login=? WHERE id=?", now, id)
 	days := effSessionDays()
-	// Secure 属性：仅 HTTPS 下才强制。纯 HTTP（内网 IP 直连）访问时若带 Secure，
-	// 浏览器会直接丢弃该 cookie，表现为「登录请求 200 但后续接口全 401、页面不跳转」。
-	// 用 COOKIE_INSECURE=1 显式放行 HTTP；否则按请求实际协议自动判断。
-	secure := os.Getenv("COOKIE_INSECURE") != "1" && requestIsHTTPS(r)
-	if os.Getenv("COOKIE_INSECURE") != "1" && !secure {
-		logReq(r, lvWarn, "检测到 HTTP 明文访问，会话 cookie 已放开 Secure 限制。"+
-			"内网自用可接受，公网部署请务必配置 HTTPS 反向代理")
-	}
+	// cookie 的 Secure 属性分三档：
+	//  1) 生产模式（run_mode=prod）→ 强制 Secure，且 HTTP 访问已被中间件跳转，不会出现存不住的情况
+	//  2) COOKIE_INSECURE=1（仅调试）→ 强制不 Secure
+	//  3) 其余 → 按本次请求实际协议自动判断（HTTP 下不带 Secure，否则浏览器会丢弃 cookie，
+	//     表现为「登录 200 但后续接口全 401、页面不跳转」）
+	secure := effForceHTTPS() || (os.Getenv("COOKIE_INSECURE") != "1" && requestIsHTTPS(r))
 	http.SetCookie(w, &http.Cookie{
 		Name: "fp_session", Value: makeToken(id, tokenVer), Path: "/",
 		MaxAge: days * 86400, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: secure})
+	if effRunMode() == "test" && !requestIsHTTPS(r) && !proxyTrusted(r) {
+		logReq(r, lvWarn, "当前为【测试模式】且走 HTTP 明文访问，会话 cookie 未加 Secure。"+
+			"正式对外使用请到「管理 → 设置」切换为生产模式并配置 HTTPS")
+	}
 	logReq(r, lvInfo, "登录成功: %q（id=%d，管理员=%v，记住 %d 天，ip=%s）",
 		uname, id, admin == 1, days, maskIP(clientIP(r)))
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -1196,7 +1210,8 @@ func apiAdminGetSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"daily_limit": effDailyLimit(), "session_days": effSessionDays(),
-		"allow_e2ee": effAllowE2EE()})
+		"allow_e2ee": effAllowE2EE(), "run_mode": effRunMode(),
+		"force_https": effForceHTTPS()})
 }
 
 // 保存系统设置
@@ -1206,14 +1221,16 @@ func apiAdminPutSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		DailyLimit  *int  `json:"daily_limit"`
-		SessionDays *int  `json:"session_days"`
-		AllowE2EE   *bool `json:"allow_e2ee"`
+		DailyLimit  *int    `json:"daily_limit"`
+		SessionDays *int    `json:"session_days"`
+		AllowE2EE   *bool   `json:"allow_e2ee"`
+		RunMode     *string `json:"run_mode"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
-	before := fmt.Sprintf("每日%s/会话%s天/加密%s",
+	onoff := map[bool]string{true: "开", false: "关"}
+	before := fmt.Sprintf("每日%s/会话%s天/加密%s/模式%s",
 		strconv.Itoa(effDailyLimit()), strconv.Itoa(effSessionDays()),
-		map[bool]string{true: "开", false: "关"}[effAllowE2EE()])
+		onoff[effAllowE2EE()], effRunMode())
 	if body.DailyLimit != nil {
 		if *body.DailyLimit < 1 || *body.DailyLimit > 999 {
 			jsonErr(w, 400, "每日上限需在 1-999 之间")
@@ -1235,15 +1252,32 @@ func apiAdminPutSettings(w http.ResponseWriter, r *http.Request) {
 			setSetting("allow_e2ee", "0")
 		}
 	}
-	after := fmt.Sprintf("每日%s/会话%s天/加密%s",
+	if body.RunMode != nil {
+		m := *body.RunMode
+		if m != "test" && m != "prod" {
+			jsonErr(w, 400, "运行模式只能是 test 或 prod")
+			return
+		}
+		// 切到生产模式前校验：必须能判定外网确实走 HTTPS，否则会把全家锁在门外。
+		// 判据是本次请求已由反代声明为 https（说明反代配置正确），否则拒绝并给出指引。
+		if m == "prod" && !requestIsHTTPS(r) {
+			logReq(r, lvWarn, "拒绝切换到生产模式：当前请求不是 HTTPS（来源 %s）", maskIP(clientIP(r)))
+			jsonErr(w, 400, "当前是 HTTP 访问，无法确认 HTTPS 反代已生效。"+
+				"请先用 https://你的域名 打开本页，再切换生产模式")
+			return
+		}
+		setSetting("run_mode", m)
+	}
+	after := fmt.Sprintf("每日%s/会话%s天/加密%s/模式%s",
 		strconv.Itoa(effDailyLimit()), strconv.Itoa(effSessionDays()),
-		map[bool]string{true: "开", false: "关"}[effAllowE2EE()])
+		onoff[effAllowE2EE()], effRunMode())
 	if before != after {
 		audit(r, me.ID, me.Username, "修改系统设置", "settings", before+" → "+after)
+		logInfo("系统设置已更新: %s", after)
 	}
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"ok": true, "daily_limit": effDailyLimit(), "session_days": effSessionDays(),
-		"allow_e2ee": effAllowE2EE()})
+		"allow_e2ee": effAllowE2EE(), "run_mode": effRunMode(), "force_https": effForceHTTPS()})
 }
 
 // 审计日志查询（管理后台「记录」页展示最近操作）
@@ -1344,7 +1378,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              listenAddr,
-		Handler:           withLog(mux), // 全局访问日志 + 请求 ID
+		Handler:           withHTTPSPolicy(withLog(mux)), // 生产模式强制 HTTPS + 全局访问日志 + 请求 ID
 		ReadHeaderTimeout: 15 * time.Second,
 	}
 	logInfo("开始监听 %s（Ctrl+C 停止）", listenAddr)

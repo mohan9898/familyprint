@@ -270,6 +270,10 @@ func logStartupBanner() {
 	line("每日限额", strconv.Itoa(effDailyLimit())+" 个任务/人")
 	line("任务超时", effJobTimeout().String())
 	line("端到端加密", map[bool]string{true: "允许", false: "已关闭"}[effAllowE2EE()])
+	line("运行模式", map[string]string{
+		"prod": "生产（强制 HTTPS）",
+		"test": "测试（允许 HTTP）",
+	}[effRunMode()])
 	line("设备token", maskSecret(deviceToken))
 	line("日志级别", [...]string{"debug", "info", "warn", "error"}[logLevel])
 	line("进程号", strconv.Itoa(os.Getpid()))
@@ -355,4 +359,63 @@ func loadAudit(limit int) []auditRow {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID > out[j].ID })
 	return out
+}
+
+// requestIsHTTPS 判断本次请求是否真的走 HTTPS。
+// 只有两种情况算 HTTPS：TLS 直连，或来自可信反代（本机/内网）且声明 X-Forwarded-Proto=https。
+// 注意必须校验来源：外部客户端可以随意伪造这个头，不校验等于绕过 HTTPS 强制。
+func requestIsHTTPS(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
+	}
+	return proxyTrusted(r) &&
+		strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
+}
+
+// proxyTrusted 判断本次请求是否来自本机/内网（反代通常部署在这里）。
+// 只用于决定「是否采信客户端声明的转发头」，不代表绕过任何校验。
+func proxyTrusted(r *http.Request) bool {
+	host := clientIP(r)
+	if host == "" {
+		return false
+	}
+	if host == "::1" || host == "127.0.0.1" {
+		return true
+	}
+	return strings.HasPrefix(host, "10.") || strings.HasPrefix(host, "192.168.") || strings.HasPrefix(host, "172.")
+}
+
+// withHTTPSPolicy：生产模式下的 HTTPS 强制入口。
+// 背景：会话 cookie 在 HTTPS 下带 Secure 才是安全的；但纯 HTTP 网站如果也带 Secure，
+// 浏览器会直接丢弃 cookie，用户会卡在「登录点了没反应」。两种环境的诉求相反，
+// 所以用「运行模式」明确区分，而不是靠猜：
+//   - test 模式：允许 HTTP 直连（内网/本地调试），cookie 按实际协议决定是否 Secure
+//   - prod 模式：只接受 HTTPS。反代转发进来的请求必须带 X-Forwarded-Proto=https，
+//     其余 HTTP 请求一律 301 跳到 https://同一地址，杜绝密码与文件在明文链路上传输
+func withHTTPSPolicy(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !effForceHTTPS() || requestIsHTTPS(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// 健康检查不跳转：监控系统通常用内网 HTTP 探活，跳转会误判为故障
+		if r.URL.Path == "/api/healthz" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		host := r.Host
+		if host == "" {
+			host = listenAddr
+		}
+		// WebSocket 升级请求不能用 301（客户端不会跟随），直接拒绝并说明原因
+		if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			logWarn("生产模式拒绝明文 WebSocket 连接（来源 %s），家庭端请使用 wss://", maskIP(clientIP(r)))
+			http.Error(w, "生产模式要求 wss://，请将 CLOUD_URLS 改为 wss:// 后重试", http.StatusUpgradeRequired)
+			return
+		}
+		target := "https://" + host + r.URL.RequestURI()
+		logWarn("生产模式拒绝 HTTP 访问 %s，已跳转到 %s（来源 %s）",
+			r.URL.Path, target, maskIP(clientIP(r)))
+		http.Redirect(w, r, target, http.StatusMovedPermanently)
+	})
 }
