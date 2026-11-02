@@ -73,6 +73,7 @@ html.big .rec .fname{max-width:180px}
 html.big .opt-line .k{width:88px}
 html.big .opt-line .seg{min-width:160px}
 html.big .opt-line{flex-wrap:wrap}
+html.big .opt-line .dd{width:100%}
 .appbar .who{
   font-size:var(--fs-aux);color:var(--t2);margin-right:2px;flex:1;min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;text-align:right;
@@ -106,8 +107,38 @@ input,select{
   border:1.5px solid var(--line);border-radius:14px;margin-bottom:12px;
   background:#f8fafd;outline:none;transition:.2s;appearance:none;
 }
-select{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%238b93a5' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 15px center;padding-right:38px}
 input:focus,select:focus{border-color:var(--main);background:#fff;box-shadow:0 0 0 4px rgba(74,108,247,.12)}
+
+/* ---------- 自定义下拉（自绘菜单，替代原生 select 面板） ---------- */
+.dd{position:relative}
+.dd-btn{
+  width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:14px 15px;font-size:var(--fs-body);font-weight:600;color:var(--t1);
+  border:1.5px solid var(--line);border-radius:14px;background:#f8fafd;
+  transition:.2s;text-align:left;line-height:1.4;
+}
+.dd-btn:active{transform:scale(.98)}
+.dd-btn .dd-val{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd-btn .dd-arrow{width:16px;height:16px;color:var(--t3);flex-shrink:0;transition:.22s}
+.dd.open .dd-btn{border-color:var(--main);background:#fff;box-shadow:0 0 0 4px rgba(74,108,247,.12)}
+.dd.open .dd-arrow{transform:rotate(180deg);color:var(--main)}
+.dd-menu{
+  position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:25;
+  background:#fff;border-radius:15px;border:1px solid var(--line);
+  box-shadow:0 16px 40px rgba(23,29,43,.16);
+  display:none;overflow-y:auto;max-height:248px;overscroll-behavior:contain;
+}
+.dd.open .dd-menu{display:block;animation:ddin .18s ease}
+@keyframes ddin{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.dd-item{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding:14px 16px;font-size:var(--fs-body);color:var(--t1);cursor:pointer;line-height:1.4;
+}
+.dd-item+.dd-item{border-top:1px solid #f2f4f8}
+.dd-item:active{background:#f4f7fd}
+.dd-item.on{background:var(--main-soft);color:var(--main-deep);font-weight:700}
+.dd-item .ck{width:17px;height:17px;color:var(--main);flex-shrink:0;visibility:hidden}
+.dd-item.on .ck{visibility:visible}
 button{cursor:pointer;font-family:inherit}
 .big{
   width:100%;padding:17px;font-size:var(--fs-btn);font-weight:700;border:0;border-radius:16px;
@@ -210,7 +241,8 @@ button{cursor:pointer;font-family:inherit}
 .opt-line+.opt-line{border-top:1px dashed #f0f2f7}
 .opt-line .k{font-size:var(--fs-body);color:var(--t2);flex-shrink:0;width:70px;font-weight:500}
 .opt-line .v{flex:1;display:flex;justify-content:flex-end}
-.opt-line select{margin:0;padding:12px 36px 12px 14px;font-size:var(--fs-body);border-radius:12px;width:auto;min-width:120px;text-align:center;text-align-last:center;background-position:right 13px center}
+.opt-line .dd{width:170px}
+.opt-line .dd-btn{padding:12px 14px;border-radius:13px}
 .opt-line .seg{width:auto;flex:0 0 auto;min-width:150px}
 .opt-line .seg button{padding:12px 6px;font-size:var(--fs-body);font-weight:600}
 .seg{display:flex;background:#eef1f7;border-radius:13px;padding:3px;gap:2px}
@@ -581,6 +613,51 @@ const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;"
 const $=i=>document.getElementById(i);
 const toast=m=>{const t=$("toast");t.textContent=m;t.style.display="block";setTimeout(()=>t.style.display="none",2600)};
 
+// ---------- 自定义下拉：把原生 select 换成自绘菜单 ----------
+// 原生 select 保留在 DOM 里（隐藏）作为数据源，所有读写 .value 的旧逻辑不受影响。
+// 菜单项大字、大点击区、选中打勾，比系统原生面板（字小、样式不可控）更适合老人。
+const CK='<span class="ck"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>';
+const ARROW='<span class="dd-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span>';
+function beautifySelect(sel){
+  if(sel._dd)return;
+  sel._dd=true;
+  sel.style.display="none";
+  const wrap=document.createElement("div");wrap.className="dd";
+  const btn=document.createElement("button");btn.type="button";btn.className="dd-btn";
+  const menu=document.createElement("div");menu.className="dd-menu";
+  btn.innerHTML='<span class="dd-val"></span>'+ARROW;
+  sel.parentNode.insertBefore(wrap,sel);
+  wrap.append(btn,menu,sel);
+  // 同步菜单项与选中态（options 可被代码动态重建）
+  function sync(){
+    menu.innerHTML="";
+    [...sel.options].forEach(o=>{
+      const it=document.createElement("div");
+      it.className="dd-item"+(o.selected?" on":"");
+      it.innerHTML="<span>"+esc(o.textContent)+"</span>"+CK;
+      it.onclick=()=>{
+        sel.value=o.value;
+        sel.dispatchEvent(new Event("change",{bubbles:true}));
+        close();sync();
+      };
+      menu.appendChild(it);
+    });
+    const cur=sel.options[sel.selectedIndex];
+    btn.querySelector(".dd-val").textContent=cur?cur.textContent:"";
+  }
+  function close(){wrap.classList.remove("open")}
+  btn.onclick=e=>{
+    e.stopPropagation();
+    const was=wrap.classList.contains("open");
+    document.querySelectorAll(".dd.open").forEach(d=>d.classList.remove("open"));
+    if(!was){sync();wrap.classList.add("open");menu.scrollTop=0}
+  };
+  // 外部点击 / 滚动时收起
+  document.addEventListener("click",close);
+  sel.addEventListener("change",sync);
+  sync();
+}
+
 // ---------- 内联 SVG 图标（不依赖 emoji 字体，所有设备渲染一致） ----------
 const ICONS={
   pdf:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15h6"/><path d="M12 12v6"/></svg>',
@@ -705,6 +782,7 @@ async function enter(){
 async function loadPrinters(){try{
   const l=await api("/api/printers");
   $("pr").innerHTML=l.map(p=>`<option>${esc(p.name)}${p.status!="online"?"（离线，可先排队）":""}</option>`).join("");
+  $("pr").dispatchEvent(new Event("change"));   // 通知自定义下拉刷新菜单与按钮文字
   const on=l.find(p=>p.status=="online");
   renderPstat(!!on,on?on.name:(l[0]&&l[0].name));
 }catch(e){$("pstat").className="pstat off";$("pstat").innerHTML='<span class="st-ico">'+ICONS.printerOff+'</span><span>无法获取打印机状态，请检查家庭端是否在线</span>'}}
@@ -935,6 +1013,7 @@ async function loadSettings(){
   try{
     const s=await api("/api/admin/settings");
     $("sLimit").value=s.daily_limit;$("sDays").value=s.session_days;$("sE2EE").value=s.allow_e2ee?"1":"0";
+    $("sE2EE").dispatchEvent(new Event("change"));
     applyMode(s.run_mode);
   }catch(e){}
 }
@@ -991,6 +1070,7 @@ async function saveSettings(){
 }
 
 (async()=>{
+  document.querySelectorAll("select").forEach(beautifySelect);
   if(navigator.userAgent.toLowerCase().includes("micromessenger")){
     $("wxTip").style.display="block";
     if(/iphone|ipad/.test(navigator.userAgent.toLowerCase()))$("sub").textContent="苹果手机选文件时点\"浏览\"，从文件 App 里选";
