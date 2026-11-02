@@ -18,7 +18,7 @@ jobs:
         with:
           go-version: "1.22"
       - name: Build all platforms
-        run: bash build-all.sh
+        run: bash build-all.sh "${{ github.ref_name }}"
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
