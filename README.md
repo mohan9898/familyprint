@@ -32,7 +32,7 @@
 | [十二](#十二日志怎么看) | 日志查看与排错 | 排问题时 |
 | [十三](#十三日常维护) | 备份/迁移/升级 | 所有人 |
 | [十四](#十四故障排查) | 常见问题对照表 | 排问题时 |
-| [附录](#附录) | 参数表/开机自启/架构对照 | 按需 |
+| [附录](#附录) | 参数表/架构对照/源码构建 | 按需 |
 
 ---
 
@@ -235,18 +235,22 @@ docker logs fp-agent
 
 ### 5.1 云端（VPS 上）
 
+**第 1 步：装 Docker**（SSH 登录 VPS 后执行；已装跳过）
+
 ```bash
-# 1. 装 Docker（同方案一，已装跳过）
-curl -fsSL https://get.docker.com | sh && systemctl enable --now docker
+curl -fsSL https://get.docker.com | sh
+systemctl enable --now docker
+docker --version    # 显示版本号 = 装好了
+```
 
-# 2. 建目录
+**第 2 步：建目录并创建编排文件**
+
+```bash
 mkdir -p /opt/familyprint && cd /opt/familyprint
-
-# 3. 创建编排文件
 nano docker-compose.cloud.yml
 ```
 
-在编辑器里粘贴以下内容（`nano` 用法：`Ctrl+O` 回车保存，`Ctrl+X` 退出）：
+在编辑器里粘贴以下内容（`nano` 用法：`Ctrl+O` 回车保存，`Ctrl+X` 退出；`必改`的 2 处先改好再保存）：
 
 ```yaml
 services:
@@ -255,16 +259,16 @@ services:
     container_name: fp-cloud
     restart: unless-stopped
     environment:
-      - SECRET_KEY=第2串随机字符          # ← 改成你自己的
-      - DEVICE_TOKEN=第1串随机字符        # ← 改成你自己的
+      - SECRET_KEY=第2串随机字符          # ← 必改
+      - DEVICE_TOKEN=第1串随机字符        # ← 必改（和家庭端一致）
       - DATA_DIR=/app/data
       - LISTEN=:8000
-      - LOG_LEVEL=info
+      - LOG_LEVEL=info                    # 日志级别：debug/info/warn/error
     volumes:
       - cloud-data:/app/data
     ports:
       - "8000:8000"
-    logging:
+    logging:                              # 日志自动轮转，防占满磁盘
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
@@ -272,20 +276,36 @@ volumes:
   cloud-data:
 ```
 
+**第 3 步：启动**
+
 ```bash
-# 4. 启动
 docker compose -f docker-compose.cloud.yml up -d
+```
 
-# 5. 验证（看到「开始监听 :8000」= 成功）
+**第 4 步：验证**
+
+```bash
 docker logs fp-cloud
+```
 
+看到启动横幅和 `开始监听 :8000` 就是成功（样例见方案一第 4 步）。
+
+```bash
 # 常用后续操作
 docker compose -f docker-compose.cloud.yml stop      # 停止
 docker compose -f docker-compose.cloud.yml restart   # 重启
 docker compose -f docker-compose.cloud.yml down      # 停止并删除容器（数据保留在卷里）
 ```
 
+**第 5 步：配置 HTTPS 反代**
+
+在你自己的 HTTPS 反代里，把域名 `print.example.com` 回源到 `VPS_IP:8000`（宝塔/Nginx/1Panel/云负载均衡均可）。
+
+**✅ 检查点 1**：浏览器打开 `https://print.example.com` 能看到登录页 → 登录默认账号 `admin / admin123` → **立即进「成员」改密码！**
+
 ### 5.2 家庭端（家里设备上）
+
+家里设备装好 Docker 后（OpenWrt：网页管理界面 → 系统 → 软件包 → 搜索 `dockerd` 安装），执行：
 
 ```bash
 mkdir -p /opt/familyprint && cd /opt/familyprint
@@ -302,24 +322,30 @@ services:
     restart: unless-stopped
     network_mode: host
     environment:
-      - CLOUD_URLS=wss://print.example.com/ws/agent
-      - DEVICE_TOKEN=第1串随机字符
-      - PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print
+      - CLOUD_URLS=wss://print.example.com/ws/agent       # ← 必改：你的域名
+      - DEVICE_TOKEN=第1串随机字符                        # ← 必改（和云端一致）
+      - PRINTER_IPP_URL=ipp://192.168.1.100:631/ipp/print # ← 必改：打印机地址
       - PRINTER_NAME=家里打印机
       - MOCK=0
-      - DEBUG=0
-      - PRINT_KEY=
+      - DEBUG=0                                           # 调试日志（1=详细）
+      - PRINT_KEY=                                        # 可选：端到端加密密钥
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 ```
 
 ```bash
-# 启动 + 验证（看到「已连接云端」= 成功）
+# 启动
 docker compose -f docker-compose.agent.yml up -d
+
+# 验证（看到「已连接云端」和「打印机在线」= 成功）
 docker logs -f fp-agent    # 按 Ctrl+C 退出查看（不影响运行）
 ```
 
+**✅ 检查点 2**：回到网页打印页，顶部打印机状态显示**在线**。
+
+> 🔄 **改了配置怎么生效**：改完 yml 文件后执行 `docker compose -f docker-compose.agent.yml up -d`（会自动重建容器）。
+>
 > 💡 **不想用 nano**：也可以用宝塔/1Panel 的文件管理器直接创建编辑 yml 文件，然后进终端执行 `docker compose -f 文件名 up -d`。
 
 ### 5.3 直接用 docker run（不用 compose）
@@ -351,33 +377,85 @@ docker run -d --name fp-agent --restart unless-stopped --network host \
 
 ### 6.1 云端（VPS 上）
 
+**第 1 步：一键下载安装 fp-cloud**（自动识别架构 + 国内加速 + SHA256 校验）
+
 ```bash
-# 一键下载安装 fp-cloud（自动识别架构 + 国内加速 + 校验）
 curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/mohan9898/familyprint/main/get.sh | ONLY=cloud sh
 ```
 
-安装完脚本会打印启动命令。把第 1 串/第 2 串随机字符填进去执行：
+**第 2 步：配置开机自启（systemd）**
+
+把下面整段复制粘贴执行（`必改`的 2 处已标注，执行前先改）：
 
 ```bash
-fp-cloud -secret 第2串随机字符 -token 第1串随机字符 -data /var/lib/familyprint -listen 127.0.0.1:8000
+cat > /etc/systemd/system/fp-cloud.service <<'EOF'
+[Unit]
+Description=FamilyPrint Cloud
+After=network-online.target
+[Service]
+ExecStart=/usr/local/bin/fp-cloud -secret 把这里改成第2串随机字符 -token 把这里改成第1串随机字符 -data /var/lib/familyprint -listen 127.0.0.1:8000
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload && systemctl enable --now fp-cloud
+journalctl -u fp-cloud -f   # 应看到 "开始监听 :8000"，按 Ctrl+C 退出查看（不影响运行）
 ```
 
-看到 `开始监听 127.0.0.1:8000` = 成功（`Ctrl+C` 可停止，正式使用请按[附录 B](#附录-b云端开机自启systemd)配置开机自启）。
+**第 3 步：配置 HTTPS 反代**
+
+在你自己的 HTTPS 反代里，把域名 `print.example.com` 回源到 `VPS_IP:8000`（宝塔/Nginx/1Panel/云负载均衡均可）。
+
+**✅ 检查点 1**：浏览器打开 `https://print.example.com` 能看到登录页 → 登录默认账号 `admin / admin123` → **立即进「成员」改密码！**
 
 ### 6.2 家庭端（家里设备上）
 
+**第 1 步：一键下载安装 fp-agent**
+
 ```bash
-# 一键下载安装 fp-agent
 curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/mohan9898/familyprint/main/get.sh | ONLY=agent sh
 ```
 
-按提示填入你的值执行：
+**第 2 步：配置开机自启**
+
+**标准 Linux / NAS（systemd）**——整段复制执行（`必改`的 3 处先改好）：
 
 ```bash
-fp-agent -cloud wss://print.example.com/ws/agent -token 第1串随机字符 -printer ipp://192.168.1.100:631/ipp/print
+cat > /etc/systemd/system/fp-agent.service <<'EOF'
+[Unit]
+Description=FamilyPrint Agent
+After=network-online.target
+[Service]
+ExecStart=/usr/local/bin/fp-agent -cloud wss://print.example.com/ws/agent -token 把这里改成第1串随机字符 -printer ipp://192.168.1.100:631/ipp/print
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload && systemctl enable --now fp-agent
+journalctl -u fp-agent -f   # 应看到 "已连接云端"，按 Ctrl+C 退出查看（不影响运行）
 ```
 
-看到 `已连接云端` 和 `打印机「家里打印机」在线` = 成功（正式使用请按[附录 D](#附录-d家庭端开机自启配置)配置开机自启）。
+**OpenWrt（procd）**——整段复制执行（`必改`的 3 处先改好）：
+
+```bash
+cat > /etc/init.d/fp-agent <<'EOF'
+#!/bin/sh /etc/rc.common
+START=99
+USE_PROCD=1
+start_service() {
+    procd_open_instance
+    procd_set_param command /usr/local/bin/fp-agent -cloud wss://print.example.com/ws/agent -token 把这里改成第1串随机字符 -printer ipp://192.168.1.100:631/ipp/print
+    procd_set_param respawn
+    procd_close_instance
+}
+EOF
+chmod +x /etc/init.d/fp-agent && /etc/init.d/fp-agent enable && /etc/init.d/fp-agent start
+logread -e fp-agent   # 应看到 "已连接云端"
+```
+
+**✅ 检查点 2**：回到网页打印页，顶部打印机状态显示**在线**。
 
 ### 6.3 一键脚本的可选参数
 
@@ -413,7 +491,7 @@ curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/mohan9898/family
 wget https://ghfast.top/https://github.com/mohan9898/familyprint/releases/latest/download/fp-cloud-linux-amd64 -O /usr/local/bin/fp-cloud
 chmod +x /usr/local/bin/fp-cloud
 
-# 家庭端（按实际架构换文件名，对照表见附录 C）
+# 家庭端（按实际架构换文件名，对照表见附录 B）
 wget https://ghfast.top/https://github.com/mohan9898/familyprint/releases/latest/download/fp-agent-linux-arm64 -O /usr/local/bin/fp-agent
 chmod +x /usr/local/bin/fp-agent
 ```
@@ -439,9 +517,65 @@ fp-cloud -secret 第2串随机字符 -token 第1串随机字符 -data /var/lib/f
 fp-agent -cloud wss://print.example.com/ws/agent -token 第1串随机字符 -printer ipp://192.168.1.100:631/ipp/print
 ```
 
-> 手动启动只在当前终端运行，**关掉终端/SSH 断开程序就停了**——所以正式使用必须配置开机自启（同时也解决了后台运行问题）：
-> - 云端 → [附录 B](#附录-b云端开机自启systemd)（systemd）
-> - 家庭端 → [附录 D](#附录-d家庭端开机自启配置)（systemd / OpenWrt procd）
+> ⚠️ 手动启动只在当前终端运行，**关掉终端/SSH 断开程序就停了**——所以正式使用必须配置开机自启（同时也解决了后台运行问题），配置如下。
+
+**云端自启（systemd）**——整段复制执行（`必改`的 2 处先改好）：
+
+```bash
+cat > /etc/systemd/system/fp-cloud.service <<'EOF'
+[Unit]
+Description=FamilyPrint Cloud
+After=network-online.target
+[Service]
+ExecStart=/usr/local/bin/fp-cloud -secret 把这里改成第2串随机字符 -token 把这里改成第1串随机字符 -data /var/lib/familyprint -listen 127.0.0.1:8000
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload && systemctl enable --now fp-cloud
+journalctl -u fp-cloud -f   # 应看到 "开始监听 :8000"，按 Ctrl+C 退出查看（不影响运行）
+```
+
+**家庭端自启（systemd）**——整段复制执行（`必改`的 3 处先改好）：
+
+```bash
+cat > /etc/systemd/system/fp-agent.service <<'EOF'
+[Unit]
+Description=FamilyPrint Agent
+After=network-online.target
+[Service]
+ExecStart=/usr/local/bin/fp-agent -cloud wss://print.example.com/ws/agent -token 把这里改成第1串随机字符 -printer ipp://192.168.1.100:631/ipp/print
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload && systemctl enable --now fp-agent
+journalctl -u fp-agent -f   # 应看到 "已连接云端"，按 Ctrl+C 退出查看（不影响运行）
+```
+
+**家庭端自启（OpenWrt，procd）**——软路由用这段代替上面 systemd 那段（`必改`的 3 处先改好）：
+
+```bash
+cat > /etc/init.d/fp-agent <<'EOF'
+#!/bin/sh /etc/rc.common
+START=99
+USE_PROCD=1
+start_service() {
+    procd_open_instance
+    procd_set_param command /usr/local/bin/fp-agent -cloud wss://print.example.com/ws/agent -token 把这里改成第1串随机字符 -printer ipp://192.168.1.100:631/ipp/print
+    procd_set_param respawn
+    procd_close_instance
+}
+EOF
+chmod +x /etc/init.d/fp-agent && /etc/init.d/fp-agent enable && /etc/init.d/fp-agent start
+logread -e fp-agent   # 应看到 "已连接云端"
+```
+
+**别忘了**：云端还需配置 HTTPS 反代（域名回源到 `VPS_IP:8000`，见方案一第 3 步）。
+
+**✅ 检查点**：回到网页打印页，顶部打印机状态显示**在线**。
 
 ### 7.3 用环境变量代替命令行参数（可选）
 
@@ -625,25 +759,7 @@ systemctl restart fp-cloud fp-agent   # 按你的实际服务名
 | `-daily-limit` | 每用户每日任务上限（管理员网页设置可覆盖） | `30` |
 | `-job-timeout` | 任务超时分钟数：家庭端离线超过该时长仍未回报，任务判失败 | `5` |
 
-### 附录 B · 云端开机自启（systemd，二进制方式用）
-
-```bash
-cat > /etc/systemd/system/fp-cloud.service <<'EOF'
-[Unit]
-Description=FamilyPrint Cloud
-After=network-online.target
-[Service]
-ExecStart=/usr/local/bin/fp-cloud -secret 改成会话密钥 -token 改成设备token -data /var/lib/familyprint -listen 127.0.0.1:8000
-Restart=always
-RestartSec=5
-[Install]
-WantedBy=multi-user.target
-EOF
-systemctl daemon-reload && systemctl enable --now fp-cloud
-journalctl -u fp-cloud -f   # 应看到 "开始监听 :8000"
-```
-
-### 附录 C · 全平台下载对照表
+### 附录 B · 全平台下载对照表
 
 [Releases 页](https://github.com/mohan9898/familyprint/releases) 按设备选择：
 
@@ -659,44 +775,7 @@ journalctl -u fp-cloud -f   # 应看到 "开始监听 :8000"
 >
 > USB 打印机暂不支持（需 CUPS 桥接），当前面向 IPP 网络打印机。
 
-### 附录 D · 家庭端开机自启配置（二进制方式用）
-
-**标准 Linux / NAS（systemd）**：
-
-```bash
-cat > /etc/systemd/system/fp-agent.service <<'EOF'
-[Unit]
-Description=FamilyPrint Agent
-After=network-online.target
-[Service]
-ExecStart=/usr/local/bin/fp-agent -cloud wss://print.example.com/ws/agent -token 改成设备token -printer ipp://192.168.1.100:631/ipp/print
-Restart=always
-RestartSec=5
-[Install]
-WantedBy=multi-user.target
-EOF
-systemctl daemon-reload && systemctl enable --now fp-agent
-journalctl -u fp-agent -f   # 应看到 "已连接云端"
-```
-
-**OpenWrt（procd）**：
-
-```bash
-cat > /etc/init.d/fp-agent <<'EOF'
-#!/bin/sh /etc/rc.common
-START=99
-USE_PROCD=1
-start_service() {
-    procd_open_instance
-    procd_set_param command /usr/local/bin/fp-agent -cloud wss://print.example.com/ws/agent -token 改成设备token -printer ipp://192.168.1.100:631/ipp/print
-    procd_set_param respawn
-    procd_close_instance
-}
-EOF
-chmod +x /etc/init.d/fp-agent && /etc/init.d/fp-agent enable && /etc/init.d/fp-agent start
-```
-
-### 附录 E · fp-agent 完整参数
+### 附录 C · fp-agent 完整参数
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
@@ -710,7 +789,7 @@ chmod +x /etc/init.d/fp-agent && /etc/init.d/fp-agent enable && /etc/init.d/fp-a
 
 > 💡 对应的环境变量：`CLOUD_URLS` / `DEVICE_TOKEN` / `PRINTER_IPP_URL` / `PRINTER_NAME` / `PRINT_KEY` / `MOCK` / `DEBUG`——Docker compose 里用的就是这些。
 
-### 附录 F · 从源码构建
+### 附录 D · 从源码构建
 
 ```bash
 cd cloud-go && go build -o fp-cloud .   # 需 Go 1.22+
@@ -725,7 +804,7 @@ bash build-all.sh   # 全平台交叉编译，产出 release/ 目录
 git tag v1.0.2 && git push origin v1.0.2
 ```
 
-### 附录 G · 项目结构
+### 附录 E · 项目结构
 
 ```
 familyprint/
