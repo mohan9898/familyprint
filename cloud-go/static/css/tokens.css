@@ -1,0 +1,26 @@
+/* 家印 · 设计令牌（tokens.css）
+   改配色/字号/圆角/阴影只动这个文件；html.big 为适老化大字号覆盖 */
+
+:root{
+  --main:#4a6cf7;--main-deep:#3752d9;--main-soft:#eef2ff;
+  --ok:#18a05e;--ok-soft:#e8f8ef;--warn:#e08510;--warn-soft:#fdf3e3;--err:#e5484d;--err-soft:#fdecec;
+  --bg:#f2f5fb;--card:#ffffff;
+  --t1:#171d2b;--t2:#4c5566;--t3:#8b93a5;
+  --line:#e9edf5;--radius:20px;
+  --shadow-1:0 1px 2px rgba(23,29,43,.05),0 6px 20px rgba(23,29,43,.06);
+  --shadow-2:0 2px 4px rgba(23,29,43,.06),0 12px 32px rgba(23,29,43,.10);
+  /* 适老化基准字号：正文 18px，辅助 16px（老年用户可读性下限） */
+  --fs-body:18px;   /* 正文 / 输入框 */
+  --fs-lg:20px;     /* 强调文字 */
+  --fs-title:26px;  /* 区块标题 */
+  --fs-aux:16px;    /* 次要说明 */
+  --fs-min:15px;    /* 极小标注（徽章等，兜底下限） */
+  --fs-btn:20px;    /* 主按钮 */
+}
+/* 超大字号模式（管理员可在设置里开，或老人自己点顶栏「A+」） */
+html.big{
+  --fs-body:22px;--fs-lg:24px;--fs-title:30px;--fs-aux:19px;--fs-min:17px;--fs-btn:24px;
+}
+
+/* 提示：页面背景渐变、输入控件基础样式分别在 base.css 与 components.css；
+   换主题色时同步检查 components.css 中带 #7b95ff / #5b7bff 的渐变（主色亮阶） */
