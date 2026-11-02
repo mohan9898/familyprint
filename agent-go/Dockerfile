@@ -3,7 +3,8 @@ FROM golang:1.22-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-COPY main.go .
+# 拷贝全部 .go 源文件（便于后续拆分源文件时不会漏拷）
+COPY *.go ./
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /fp-agent .
 
 FROM scratch

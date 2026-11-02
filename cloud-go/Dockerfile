@@ -3,7 +3,8 @@ FROM golang:1.22-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-COPY main.go .
+# 拷贝全部 .go 源文件（新增源文件无需再改这里，避免漏拷导致 undefined 编译错误）
+COPY *.go ./
 COPY static ./static
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /fp-cloud .
 
