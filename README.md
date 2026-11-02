@@ -467,6 +467,8 @@ logread -e fp-agent   # 应看到 "已连接云端"
 | 指定镜像（自动的不通时） | `MIRROR=https://gh-proxy.com/` |
 | 跳过校验（不推荐） | `NO_VERIFY=1` |
 
+> ⚠️ **装到哪里很关键**：脚本默认装到 `/usr/local/bin`，保持默认最省事。如果用 `INSTALL_DIR=/opt/xxx` 装到别处，后面写开启自启时 **ExecStart 必须写绝对路径**（如 `/opt/xxx/fp-cloud`），否则 systemd 找不到程序会报 `203/EXEC`，详见 [7.4](#74-️-自启失败的两种典型报错必看)。
+
 ```bash
 # 举例：只把家庭端装到当前目录
 curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/mohan9898/familyprint/main/get.sh | INSTALL_DIR=$PWD ONLY=agent sh
@@ -488,12 +490,17 @@ curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/mohan9898/family
 
 ```bash
 # 云端（VPS 一般是 amd64）
+# ⚠️ 建议一律装到 /usr/local/bin（systemd 默认会搜这个目录），别用 /opt 等路径
 wget https://ghfast.top/https://github.com/mohan9898/familyprint/releases/latest/download/fp-cloud-linux-amd64 -O /usr/local/bin/fp-cloud
 chmod +x /usr/local/bin/fp-cloud
 
 # 家庭端（按实际架构换文件名，对照表见附录 B）
 wget https://ghfast.top/https://github.com/mohan9898/familyprint/releases/latest/download/fp-agent-linux-arm64 -O /usr/local/bin/fp-agent
 chmod +x /usr/local/bin/fp-agent
+
+# 下载完必须确认这两行输出：文件存在、且带 x（可执行）权限
+ls -l /usr/local/bin/fp-cloud /usr/local/bin/fp-agent
+file /usr/local/bin/fp-cloud    # 应显示 ELF 64-bit LSB executable, x86-64
 ```
 
 > 🇨🇳 上面已带加速前缀；直连就删掉 `https://ghfast.top/`。
@@ -593,6 +600,75 @@ fp-agent
 ```
 
 > ⚠️ 注意：Docker 部署时**必须**对外监听（`LISTEN=:8000`），只有二进制 + 本机反代场景才用 `127.0.0.1`。
+
+### 7.4 ⚠️ 自启失败的两种典型报错（必看）
+
+自己写 systemd/自启配置时，`status=203/EXEC` 是最常见的失败，日志长这样：
+
+```
+systemd[1]: fp.service: Main process exited, code=exited, status=203/EXEC
+fp.service: Failed at step EXEC spawning /opt/fp/fp-cloud: No such file or directory
+```
+
+`203/EXEC` 的含义是「**systemd 无法把 ExecStart 指定的程序执行起来**」，99% 是下面两种情况之一。看冒号后面的那句描述就能区分：
+
+#### 情况一：`No such file or directory` → 路径问题
+
+| 原因 | 判断方法 | 修复 |
+|------|---------|------|
+| ExecStart 写的是裸文件名（如 `ExecStart=fp-cloud`） | `systemctl cat fp` 看到没带 `/` | 改成**绝对路径**（见下）|
+| 文件真实路径与 unit 里写的不一致（如实际在 `/opt/fp`，unit 写 `/opt/fr`） | `ls -l /opt/fp/` 对比 unit 里的路径 | 两边改成一致 |
+| 文件名对不上（实际叫 `fp-cloud-linux-amd64`） | `ls /opt/fp/` | 统一命名为 `fp-cloud`，或 unit 里写全名 |
+| 文件根本不在（下载失败/装到了别的目录） | `which fp-cloud`、`find / -name "fp-cloud" -type f 2>/dev/null` | 重新下载安装 |
+| `/opt` 是后挂的数据盘，开机时还没挂载 | `mount \| grep ' /opt '` 有输出 | 把二进制放到 `/usr/local/bin`（系统盘，最稳） |
+
+**正确写法示范**（一律写绝对路径，不依赖 PATH）：
+
+```ini
+# ✅ 正确
+ExecStart=/usr/local/bin/fp-cloud -secret xxx -token xxx -data /var/lib/familyprint -listen 127.0.0.1:8000
+# ❌ 错误：systemd 只搜 /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin，文件在别处就找不到
+ExecStart=fp-cloud -secret xxx -token xxx
+```
+
+#### 情况二：`Permission denied` → 权限问题
+
+说明文件**找到了**，但没权限执行。三层原因，按顺序排查：
+
+```bash
+# ① 文件本身是否有可执行位（最常见：下载后忘了 chmod +x）
+chmod +x /usr/local/bin/fp-cloud
+ls -l /usr/local/bin/fp-cloud     # 必须是 -rwxr-xr-x，若为 -rw-r--r-- 就是这个问题
+
+# ② 所在目录是否有 x 权限（目录没 x 就无法进入，也就无法执行其中的文件）
+chmod 755 /opt/fp
+ls -ld /opt/fp                    # 应为 drwxr-xr-x
+
+# ③ 是否挂载了 noexec（该分区禁止执行任何程序）
+mount | grep ' /opt '
+#   输出里带 noexec → 换目录，例如：
+install -m 755 /opt/fp/fp-cloud /usr/local/bin/fp-cloud
+```
+
+> 💡 **一条命令同时解决①②**：`install -m 755 源文件 /usr/local/bin/目标名`，它会自动设好属主和 755 权限。
+
+#### 改完 unit 后必须做的三步
+
+```bash
+systemctl daemon-reload      # 让 systemd 重新读取 unit 文件（改完不执行则不生效）
+systemctl reset-failed fp    # 清除失败计数（反复失败后会被判定"启动过快"，不清就直接拒绝启动）
+systemctl restart fp
+systemctl status fp --no-pager
+journalctl -u fp -n 30 --no-pager   # 应看到「开始监听」
+```
+
+> 🔍 **日志里 `restart counter is at 180` 这类大数字**说明它已经反复重启几百次了，此时**一定**要先 `systemctl stop fp` + `reset-failed` 再改，否则改完仍会被「启动过快」挡住。
+>
+> 🔍 **先手动跑一次再配自启**：直接执行 `/usr/local/bin/fp-cloud -secret test -token test -listen 127.0.0.1:8000`。
+> - 能打印「开始监听」→ 程序没问题，问题一定在 unit 文件
+> - 报 `Permission denied` → 权限问题（上面②③）
+> - 报 `cannot execute binary file` → **架构下错了**，`uname -m` 看架构重下（VPS 一般是 amd64）
+> - 报 `error while loading shared libraries` → 系统缺 glibc，换用 Docker 方式部署
 
 ---
 
@@ -741,6 +817,9 @@ systemctl restart fp-cloud fp-agent   # 按你的实际服务名
 | 「不支持的文件类型」 | 支持 PDF/JPG/PNG/DOCX/TXT；老 .doc 先转成 .docx 或 PDF |
 | 过段时间又要登录 | 正常（默认 30 天），重登一次即可 |
 | 下载二进制很慢/失败 | 加速前缀换成 `https://gh-proxy.com/`；或用一键脚本的 `MIRROR=` 参数 |
+| 服务启动报 `status=203/EXEC` | 见 [7.4 自启失败两种典型报错](#74-️-自启失败的两种典型报错必看)：`No such file` = 路径错（ExecStart 写绝对路径、核对文件名）；`Permission denied` = 缺执行权限（`chmod +x` 或 `install -m 755`） |
+| 改了 unit 文件没反应 | 改完必须 `systemctl daemon-reload`；反复启动失败后还要 `systemctl reset-failed 服务名` |
+| 日志显示 `restart counter is at 180` 之类 | 服务已反复失败几百次，先 `systemctl stop fp && systemctl reset-failed fp` 再修 |
 | 打印失败不知道哪一步出的问题 | 云端日志按「请求 ID」串起一次操作的全部日志；家庭端日志有「收到→排队→开始→完成/失败」每一步和耗时 |
 
 ---
