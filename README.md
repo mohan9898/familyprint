@@ -172,14 +172,42 @@ docker logs fp-agent
 
 #### 方式 B：二进制（不用 Docker，一条命令直接跑）
 
+**推荐：一键下载脚本**（自动识别架构、走国内加速、校验文件完整性）
+
 ```bash
-# 1. 下载（按设备选文件，对照表在附录 C）
-wget https://github.com/mohan9898/familyprint/releases/latest/download/fp-agent-linux-arm64 -O /usr/local/bin/fp-agent
+# 家里设备上执行（自动装 fp-agent，无需自己判断 amd64/arm64）
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/mohan9898/familyprint/main/get.sh | sh
+```
+
+脚本会自动完成：识别系统架构 → 选最快的国内镜像 → 下载 → **SHA256 校验** → 装到 `/usr/local/bin`（无权限自动退回 `~/.local/bin`）→ 打印启动命令。
+
+| 想改什么 | 在命令前面加环境变量 |
+|----------|---------------------|
+| 装到别处 | `INSTALL_DIR=/opt/bin` |
+| 只装家庭端 / 只装云端 / 都装 | `ONLY=agent` / `ONLY=cloud` / `ONLY=both`（默认 both） |
+| 指定版本 | `VERSION=v1.1.3` |
+| 指定镜像（自动的不通时） | `MIRROR=https://gh-proxy.com/` |
+| 跳过校验（不推荐） | `NO_VERIFY=1` |
+
+```bash
+# 举例：只把家庭端装到当前目录
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/mohan9898/familyprint/main/get.sh | INSTALL_DIR=$PWD ONLY=agent sh
+```
+
+**手动下载**（脚本跑不通时）：
+
+```bash
+# 1. 下载（按设备选文件，对照表在附录 C；国内加 ghfast.top/ 前缀即可加速）
+wget https://ghfast.top/https://github.com/mohan9898/familyprint/releases/latest/download/fp-agent-linux-arm64 -O /usr/local/bin/fp-agent
 chmod +x /usr/local/bin/fp-agent
 
 # 2. 一条命令启动（改 3 个值）
 fp-agent -cloud wss://print.example.com/ws/agent -token 第1串随机字符 -printer ipp://192.168.1.100:631/ipp/print
 ```
+
+> 🚀 **国内加速**：在任意 GitHub 下载地址前加 `https://ghfast.top/` 即可，例如
+> `https://ghfast.top/https://github.com/mohan9898/familyprint/releases/download/v1.1.3/fp-cloud-linux-amd64`
+> 实测同一文件：直连 90 秒仅 1.3MB，加速后 3 秒完整下载（5.4MB）。
 
 想开机自启：用 systemd 或 OpenWrt procd，完整配置见[附录 D](#附录-d家庭端开机自启配置)。
 
@@ -334,9 +362,17 @@ bash restore.sh fp-backup-xxx.tar.gz    # 恢复
 
 ### 附录 A · 二进制运行云端（不用 Docker）
 
+**一键下载（推荐，自动识别架构 + 国内加速 + 校验）**，在 VPS 上执行：
+
 ```bash
-# 下载（amd64 为主流，其他架构见附录 C）
-wget https://github.com/mohan9898/familyprint/releases/latest/download/fp-cloud-linux-amd64 -O /usr/local/bin/fp-cloud
+curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/mohan9898/familyprint/main/get.sh | ONLY=cloud sh
+```
+
+**手动下载**：
+
+```bash
+# 下载（amd64 为主流，其他架构见附录 C；国内加 ghfast.top/ 前缀加速）
+wget https://ghfast.top/https://github.com/mohan9898/familyprint/releases/latest/download/fp-cloud-linux-amd64 -O /usr/local/bin/fp-cloud
 chmod +x /usr/local/bin/fp-cloud
 
 # 一条命令启动
