@@ -9,12 +9,12 @@
   border-bottom:1px solid rgba(233,237,245,.9);
 }
 .appbar .brand{display:flex;align-items:center;gap:10px;font-size:var(--fs-title);font-weight:800;letter-spacing:.5px}
+/* 品牌图标：家印 logo（static/favicon.svg），登录页与两处顶栏共用 */
 .appbar .brand .logo{
-  width:38px;height:38px;border-radius:12px;color:#fff;display:flex;align-items:center;justify-content:center;
-  background:linear-gradient(135deg,var(--main),#7b95ff);
-  box-shadow:0 4px 12px rgba(74,108,247,.35);
+  width:38px;height:38px;border-radius:12px;overflow:hidden;
+  box-shadow:var(--shadow-1);
 }
-.appbar .brand .logo svg{width:20px;height:20px}
+.appbar .brand .logo img{width:100%;height:100%;display:block}
 .appbar .acts{display:flex;align-items:center;gap:4px}
 .appbar .acts a{
   font-size:var(--fs-aux);color:var(--t2);padding:9px 12px;border-radius:12px;font-weight:600;
@@ -43,12 +43,10 @@ html.big .opt-line .dd{width:100%}
 /* ---------- 登录页 ---------- */
 .hero{text-align:center;padding:52px 0 26px}
 .hero .hero-logo{
-  width:88px;height:88px;margin:0 auto 18px;border-radius:26px;color:#fff;
-  display:flex;align-items:center;justify-content:center;
-  background:linear-gradient(135deg,var(--main),#7b95ff);
-  box-shadow:0 14px 32px rgba(74,108,247,.38),inset 0 1px 0 rgba(255,255,255,.35);
+  width:88px;height:88px;margin:0 auto 18px;border-radius:26px;overflow:hidden;
+  box-shadow:0 14px 32px rgba(23,29,43,.16);
 }
-.hero .hero-logo svg{width:44px;height:44px}
+.hero .hero-logo img{width:100%;height:100%;display:block}
 .hero h1{font-size:34px;font-weight:800;letter-spacing:3px}
 .hero .sub{color:var(--t3);font-size:var(--fs-aux);margin-top:8px;letter-spacing:1px}
 .login-card{padding:26px 22px 24px}
