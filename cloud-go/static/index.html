@@ -3,19 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#f2f5fb">
 <title>家印 · 家庭打印</title>
 <style>
 :root{
-  --main:#3f6fe0;--main-deep:#2f57c4;
-  --ok:#1a9160;--warn:#d4740a;--err:#d93c42;
-  --bg:#f5f7fb;--card:#ffffff;
-  --t1:#141a26;--t2:#4a5464;--t3:#7d8797;
-  --line:#e8ecf3;--radius:18px;
+  --main:#4a6cf7;--main-deep:#3752d9;--main-soft:#eef2ff;
+  --ok:#18a05e;--ok-soft:#e8f8ef;--warn:#e08510;--warn-soft:#fdf3e3;--err:#e5484d;--err-soft:#fdecec;
+  --bg:#f2f5fb;--card:#ffffff;
+  --t1:#171d2b;--t2:#4c5566;--t3:#8b93a5;
+  --line:#e9edf5;--radius:20px;
+  --shadow-1:0 1px 2px rgba(23,29,43,.05),0 6px 20px rgba(23,29,43,.06);
+  --shadow-2:0 2px 4px rgba(23,29,43,.06),0 12px 32px rgba(23,29,43,.10);
   /* 适老化基准字号：正文 18px，辅助 16px（老年用户可读性下限） */
   --fs-body:18px;   /* 正文 / 输入框 */
   --fs-lg:20px;     /* 强调文字 */
   --fs-title:26px;  /* 区块标题 */
-  --fs-aux:16px;    /* 次要说明（原 12-13px，统一抬到 16） */
+  --fs-aux:16px;    /* 次要说明 */
   --fs-min:15px;    /* 极小标注（徽章等，兜底下限） */
   --fs-btn:20px;    /* 主按钮 */
 }
@@ -26,240 +29,336 @@ html.big{
 *{box-sizing:border-box;margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei",sans-serif;-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%}
 body{
   background:
-    radial-gradient(1200px 500px at 50% -10%, rgba(79,124,255,.10), transparent 60%),
+    radial-gradient(900px 420px at 85% -8%, rgba(74,108,247,.10), transparent 60%),
+    radial-gradient(700px 380px at -10% 12%, rgba(24,160,94,.07), transparent 55%),
     var(--bg);
   color:var(--t1);min-height:100vh;
 }
-.wrap{max-width:480px;margin:0 auto;padding:20px 18px calc(48px + env(safe-area-inset-bottom))}
-h1{font-size:24px;font-weight:800;text-align:center;padding:22px 0 2px;letter-spacing:1px;color:var(--t1)}
-h1 .logo{display:inline-flex;width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--main),#7aa0ff);color:#fff;align-items:center;justify-content:center;font-size:19px;margin-right:8px;vertical-align:-8px;box-shadow:0 4px 12px rgba(79,124,255,.35)}
-.sub-title{text-align:center;color:var(--t3);font-size:13px;margin-bottom:18px;letter-spacing:.5px}
-.top{display:flex;justify-content:space-between;align-items:center;color:var(--t3);font-size:14px;margin-bottom:14px;padding:0 2px}
-.top a{color:var(--t3);padding:6px 10px;border-radius:10px;transition:.2s}
-.top a:active{background:rgba(0,0,0,.05)}
-.card{
-  background:var(--card);border-radius:var(--radius);padding:20px;
-  box-shadow:0 1px 2px rgba(28,35,51,.04),0 8px 24px rgba(28,35,51,.05);
-  margin-bottom:16px;border:1px solid rgba(255,255,255,.7);
-}
-input,select{
-  width:100%;padding:16px 15px;font-size:var(--fs-body);color:var(--t1);
-  border:1.5px solid var(--line);border-radius:13px;margin-bottom:12px;
-  background:#fafbfd;outline:none;transition:.2s;appearance:none;
-}
-input:focus,select:focus{border-color:var(--main);background:#fff;box-shadow:0 0 0 4px rgba(79,124,255,.12)}
-button{cursor:pointer;font-family:inherit}
-.big{
-  width:100%;padding:18px;font-size:var(--fs-btn);font-weight:700;border:0;border-radius:15px;
-  background:linear-gradient(135deg,var(--main),var(--main-deep));color:#fff;letter-spacing:2px;
-  box-shadow:0 6px 16px rgba(79,124,255,.35);transition:.2s;
-}
-.big:active{transform:scale(.98);box-shadow:0 3px 8px rgba(79,124,255,.3)}
-.big[disabled]{background:#c3cad6;box-shadow:none}
-.drop{
-  border:1.5px dashed #c9d6f5;border-radius:14px;padding:34px 12px;text-align:center;
-  color:var(--main-deep);font-size:var(--fs-lg);font-weight:600;background:linear-gradient(180deg,#f3f7ff,#fbfdff);
-  cursor:pointer;transition:.2s;
-}
-.drop:active{background:#e9f0ff;transform:scale(.99)}
-.drop .icon{display:block;font-size:40px;margin-bottom:10px}
-.row{display:flex;gap:12px;margin:14px 0}
-.row>div{flex:1}
-.lbl{font-size:13px;color:var(--t2);margin-bottom:6px;font-weight:500}
-.seg{display:flex;background:#f0f2f7;border-radius:12px;padding:3px;gap:2px}
-.seg button{
-  flex:1;padding:10px 2px;border:0;background:transparent;font-size:14px;color:var(--t2);
-  border-radius:10px;transition:.2s;font-weight:500;
-}
-.seg button.on{background:#fff;color:var(--main-deep);font-weight:600;box-shadow:0 1px 4px rgba(28,35,51,.1)}
-.info{
-  margin:12px 0 2px;padding:11px 13px;background:#f3f7ff;border-radius:11px;
-  font-size:14px;color:var(--main-deep);word-break:break-all;display:none;font-weight:500;
-}
-.tip{
-  background:linear-gradient(135deg,#fff9ec,#fffdf6);border:1px solid #f5e3b3;border-radius:14px;
-  padding:14px 15px;font-size:var(--fs-aux);color:#7a5510;line-height:1.7;margin-bottom:14px;display:none;
-}
-.state{
-  text-align:center;margin-top:14px;padding:12px;border-radius:12px;
-  background:#f0fbf4;color:var(--ok);font-size:var(--fs-body);font-weight:600;display:none;line-height:1.6;
-}
-.state.bad{background:#fdebec;color:var(--err)}
-.records{font-size:var(--fs-body)}
-.rec-title{display:flex;justify-content:space-between;align-items:center;font-size:var(--fs-lg);font-weight:700;color:var(--t1);margin-bottom:6px}
-.rec-title a{color:var(--main);font-size:var(--fs-aux);font-weight:600;padding:4px 0 4px 12px}
-.rec{display:flex;justify-content:space-between;align-items:center;padding:13px 0;border-bottom:1px solid var(--line)}
-.rec:last-child{border:0}
-.rec .fname{font-weight:700;font-size:var(--fs-body);max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.rec .meta{color:var(--t3);font-size:var(--fs-aux);margin-top:4px;line-height:1.5}
-.rec .right{text-align:right;flex-shrink:0;margin-left:10px}
-.badge{display:inline-block;padding:5px 12px;border-radius:99px;font-size:var(--fs-min);font-weight:600}
-.q{background:#eef1f6;color:var(--t2)}
-.p{background:#fff2e3;color:var(--warn)}
-.c{background:#e6f6ee;color:var(--ok)}
-.x{background:#fdebec;color:var(--err)}
-.cancel-link{color:var(--err);font-size:var(--fs-aux);margin-top:8px;display:inline-block;font-weight:600;padding:4px 0}
-.toast{
-  position:fixed;top:70px;left:50%;transform:translateX(-50%);
-  background:rgba(28,35,51,.92);color:#fff;padding:11px 22px;border-radius:99px;
-  font-size:var(--fs-body);display:none;z-index:9;backdrop-filter:blur(6px);box-shadow:0 8px 24px rgba(0,0,0,.18);
-  max-width:86vw;text-align:center;
-}
-.empty{color:var(--t3);text-align:center;padding:22px;font-size:var(--fs-aux)}
-a{cursor:pointer}
+.wrap{max-width:480px;margin:0 auto;padding:16px 18px calc(140px + env(safe-area-inset-bottom))}
+svg{display:block}
+.ico{display:inline-flex;flex-shrink:0}
+.ico svg{width:100%;height:100%}
 
-/* ---------- 顶栏（吸顶，替代大标题占位） ---------- */
+/* ---------- 顶栏 ---------- */
 .appbar{
   position:sticky;top:0;z-index:6;display:flex;align-items:center;justify-content:space-between;
-  padding:10px 4px 12px;margin:-4px -4px 8px;
-  background:linear-gradient(180deg,rgba(245,247,251,.98) 70%,rgba(245,247,251,0));
-  backdrop-filter:blur(8px);
+  padding:12px 6px;margin:-16px -8px 14px;
+  background:rgba(242,245,251,.86);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+  border-bottom:1px solid rgba(233,237,245,.9);
 }
-.appbar .brand{display:flex;align-items:center;gap:9px;font-size:var(--fs-title);font-weight:800;letter-spacing:.5px}
-.appbar .brand .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--main),#7aa0ff);color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 3px 10px rgba(79,124,255,.32)}
+.appbar .brand{display:flex;align-items:center;gap:10px;font-size:var(--fs-title);font-weight:800;letter-spacing:.5px}
+.appbar .brand .logo{
+  width:38px;height:38px;border-radius:12px;color:#fff;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,var(--main),#7b95ff);
+  box-shadow:0 4px 12px rgba(74,108,247,.35);
+}
+.appbar .brand .logo svg{width:20px;height:20px}
 .appbar .acts{display:flex;align-items:center;gap:4px}
-.appbar .acts a{font-size:var(--fs-aux);color:var(--t2);padding:9px 11px;border-radius:10px;font-weight:600;white-space:nowrap;flex-shrink:0}
-.appbar .acts a:active{background:rgba(0,0,0,.05)}
-.appbar .fsbtn{font-weight:800;letter-spacing:.5px;border:1.5px solid var(--line);background:#fff;line-height:1;padding:8px 9px !important}
-html.big .appbar .fsbtn{background:var(--main);color:#fff;border-color:var(--main)}
+.appbar .acts a{
+  font-size:var(--fs-aux);color:var(--t2);padding:9px 12px;border-radius:12px;font-weight:600;
+  white-space:nowrap;flex-shrink:0;transition:.2s;
+}
+.appbar .acts a:active{background:rgba(23,29,43,.06)}
+.appbar .fsbtn{
+  font-weight:800;letter-spacing:.5px;border:1.5px solid var(--line);background:#fff;
+  line-height:1;padding:9px 10px !important;color:var(--main-deep) !important;box-shadow:var(--shadow-1);
+}
+html.big .appbar .fsbtn{background:var(--main);color:#fff !important;border-color:var(--main)}
 html.big .appbar{flex-wrap:wrap;row-gap:4px}
 html.big .appbar .who{max-width:72px}
 html.big .appbar .acts a{padding:8px 8px}
-html.big .wrap{max-width:560px}
+html.big .wrap{max-width:560px;padding-bottom:calc(180px + env(safe-area-inset-bottom))}
 html.big .rec .fname{max-width:180px}
 html.big .opt-line .k{width:88px}
 html.big .opt-line .seg{min-width:160px}
 html.big .opt-line{flex-wrap:wrap}
-.appbar .who{font-size:var(--fs-aux);color:var(--t2);margin-right:2px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;text-align:right}
+.appbar .who{
+  font-size:var(--fs-aux);color:var(--t2);margin-right:2px;flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;text-align:right;
+}
+
+/* ---------- 登录页 ---------- */
+.hero{text-align:center;padding:52px 0 26px}
+.hero .hero-logo{
+  width:88px;height:88px;margin:0 auto 18px;border-radius:26px;color:#fff;
+  display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,var(--main),#7b95ff);
+  box-shadow:0 14px 32px rgba(74,108,247,.38),inset 0 1px 0 rgba(255,255,255,.35);
+}
+.hero .hero-logo svg{width:44px;height:44px}
+.hero h1{font-size:34px;font-weight:800;letter-spacing:3px}
+.hero .sub{color:var(--t3);font-size:var(--fs-aux);margin-top:8px;letter-spacing:1px}
+.login-card{padding:26px 22px 24px}
+.login-card .lbl{display:block;font-size:var(--fs-aux);color:var(--t2);font-weight:600;margin:0 0 8px 2px}
+.login-foot{text-align:center;color:var(--t3);font-size:var(--fs-aux);padding:16px 0 0;display:flex;align-items:center;justify-content:center;gap:6px}
+.login-foot .ico{width:15px;height:15px;color:var(--t3)}
+.secure-line{display:flex;align-items:center;justify-content:center;gap:6px;color:var(--t3);font-size:var(--fs-min);margin-top:18px}
+.secure-line .ico{width:14px;height:14px}
+
+/* ---------- 卡片 ---------- */
+.card{
+  background:var(--card);border-radius:var(--radius);padding:20px;
+  box-shadow:var(--shadow-1);margin-bottom:14px;border:1px solid rgba(255,255,255,.8);
+}
+input,select{
+  width:100%;padding:15px 16px;font-size:var(--fs-body);color:var(--t1);
+  border:1.5px solid var(--line);border-radius:14px;margin-bottom:12px;
+  background:#f8fafd;outline:none;transition:.2s;appearance:none;
+}
+select{background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%238b93a5' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 15px center;padding-right:38px}
+input:focus,select:focus{border-color:var(--main);background:#fff;box-shadow:0 0 0 4px rgba(74,108,247,.12)}
+button{cursor:pointer;font-family:inherit}
+.big{
+  width:100%;padding:17px;font-size:var(--fs-btn);font-weight:700;border:0;border-radius:16px;
+  color:#fff;letter-spacing:2px;transition:.2s;
+  background:linear-gradient(135deg,#5b7bff,var(--main-deep));
+  box-shadow:0 8px 20px rgba(74,108,247,.35);
+}
+.big:active{transform:scale(.98);box-shadow:0 4px 10px rgba(74,108,247,.3)}
+.big.idle{background:linear-gradient(135deg,#a7b6e8,#8fa3dd);box-shadow:none}
+.big[disabled]{background:#c3cad6;box-shadow:none}
 
 /* ---------- 步骤条 ---------- */
-.steps{display:flex;align-items:center;gap:5px;margin:0 0 14px;padding:0 2px;min-width:0}
-.steps .s{min-width:0}
-.steps .s{display:flex;align-items:center;gap:5px;font-size:var(--fs-aux);color:var(--t3);font-weight:700;line-height:1.3}
-.steps .s i{width:19px;height:19px;border-radius:50%;background:#e7ebf4;color:#98a1b0;display:inline-flex;align-items:center;justify-content:center;font-style:normal;font-size:var(--fs-min);font-weight:800;transition:.2s}
+.steps{
+  display:flex;align-items:center;gap:6px;margin:0 0 14px;padding:12px 16px;
+  background:#fff;border-radius:16px;box-shadow:var(--shadow-1);min-width:0;
+}
+.steps .s{display:flex;align-items:center;gap:6px;font-size:var(--fs-aux);color:var(--t3);font-weight:700;line-height:1.3;min-width:0}
+.steps .s span{white-space:nowrap}
+.steps .s i{
+  width:22px;height:22px;border-radius:50%;background:#eef1f7;color:#9aa3b5;
+  display:inline-flex;align-items:center;justify-content:center;font-style:normal;
+  font-size:var(--fs-min);font-weight:800;transition:.25s;flex-shrink:0;
+}
+.steps .s i svg{width:12px;height:12px}
 .steps .s.on{color:var(--main-deep)}
-.steps .s.on i{background:var(--main);color:#fff;box-shadow:0 0 0 3px rgba(79,124,255,.16)}
+.steps .s.on i{background:var(--main);color:#fff;box-shadow:0 0 0 4px rgba(74,108,247,.15)}
+.steps .s.ok{color:var(--ok)}
 .steps .s.ok i{background:var(--ok);color:#fff}
-.steps .line{flex:1;height:2px;border-radius:2px;background:#e7ebf4;min-width:10px}
-.steps .line.ok{background:linear-gradient(90deg,var(--ok),#7fd3ad)}
+.steps .line{flex:1;height:2.5px;border-radius:2px;background:#e9edf5;min-width:8px;transition:.3s}
+.steps .line.ok{background:linear-gradient(90deg,var(--ok),#67d3a1)}
 
 /* ---------- 打印机状态条 ---------- */
-.pstat{display:flex;align-items:center;gap:9px;padding:13px 14px;border-radius:12px;background:#f3f7ff;font-size:var(--fs-body);color:var(--main-deep);margin-bottom:14px;font-weight:600;line-height:1.5}
-.pstat .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-.pstat.ok{background:#f0fbf4;color:#1c7c53}
-.pstat.ok .dot{background:var(--ok);box-shadow:0 0 0 3px rgba(34,160,107,.16)}
-.pstat.off{background:#fdf3ec;color:#a05a13}
-.pstat.off .dot{background:var(--warn);box-shadow:0 0 0 3px rgba(232,137,12,.16)}
-.pstat .spin{width:12px;height:12px;border:2px solid rgba(79,124,255,.25);border-top-color:var(--main);border-radius:50%;animation:sp .7s linear infinite;flex-shrink:0}
+.pstat{
+  display:flex;align-items:center;gap:10px;padding:14px 16px;border-radius:16px;
+  background:#fff;font-size:var(--fs-body);margin-bottom:14px;font-weight:600;line-height:1.5;
+  box-shadow:var(--shadow-1);border:1px solid rgba(255,255,255,.8);
+}
+.pstat .st-ico{width:34px;height:34px;border-radius:11px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.pstat .st-ico svg{width:18px;height:18px}
+.pstat.ok{color:#157a48}
+.pstat.ok .st-ico{background:var(--ok-soft);color:var(--ok)}
+.pstat.off{color:#a3620e}
+.pstat.off .st-ico{background:var(--warn-soft);color:var(--warn)}
+.pstat .spin{width:16px;height:16px;border:2.5px solid rgba(74,108,247,.22);border-top-color:var(--main);border-radius:50%;animation:sp .7s linear infinite;flex-shrink:0;margin:0 9px}
 @keyframes sp{to{transform:rotate(360deg)}}
 
+/* ---------- 提示条 ---------- */
+.tip{
+  background:linear-gradient(135deg,#fff8e8,#fffdf5);border:1px solid #f3e2b5;border-radius:16px;
+  padding:14px 16px;font-size:var(--fs-aux);color:#7a5510;line-height:1.7;margin-bottom:14px;display:none;
+}
+
+/* ---------- 上传区 ---------- */
+.drop{
+  border:1.5px dashed #b9c8f2;border-radius:18px;padding:36px 16px;text-align:center;
+  color:var(--main-deep);font-size:var(--fs-lg);font-weight:700;
+  background:linear-gradient(180deg,#f4f8ff,#fbfdff);cursor:pointer;transition:.2s;
+}
+.drop:active{background:#e9f0ff;transform:scale(.99)}
+.drop .drop-ico{
+  width:64px;height:64px;margin:0 auto 14px;border-radius:20px;color:#fff;
+  display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,var(--main),#7b95ff);
+  box-shadow:0 8px 20px rgba(74,108,247,.32);
+}
+.drop .drop-ico svg{width:30px;height:30px}
+.drop .sub{font-size:var(--fs-aux);color:var(--t3);margin-top:8px;font-weight:500}
+
 /* ---------- 已选文件卡 ---------- */
-.file-chip{display:none;align-items:center;gap:11px;padding:12px 13px;border-radius:13px;background:#f7f9fd;border:1px solid #e6ecf8;margin-bottom:12px}
+.file-chip{
+  display:none;align-items:center;gap:12px;padding:14px;border-radius:16px;
+  background:linear-gradient(135deg,#f6f9ff,#fbfdff);border:1px solid #e3ebfa;margin-bottom:12px;
+}
 .file-chip.show{display:flex}
-.file-chip .fi{width:36px;height:36px;border-radius:10px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;box-shadow:0 1px 3px rgba(28,35,51,.08)}
+.file-chip .fi{
+  width:44px;height:44px;border-radius:13px;color:var(--main-deep);
+  background:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  box-shadow:var(--shadow-1);border:1px solid #edf1fa;
+}
+.file-chip .fi svg{width:22px;height:22px}
 .file-chip .ft{flex:1;min-width:0}
 .file-chip .fn{font-size:var(--fs-body);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .file-chip .fs{font-size:var(--fs-aux);color:var(--t3);margin-top:3px}
-.file-chip .fx{width:36px;height:36px;border-radius:10px;background:#fff;color:var(--t2);border:0;font-size:var(--fs-lg);flex-shrink:0;line-height:1}
-.file-chip .fx:active{background:#fdebec;color:var(--err)}
+.file-chip .fx{
+  width:38px;height:38px;border-radius:12px;background:#fff;color:var(--t2);
+  border:1px solid var(--line);font-size:var(--fs-lg);flex-shrink:0;line-height:1;
+}
+.file-chip .fx:active{background:var(--err-soft);color:var(--err);border-color:#f5c6c8}
 
 /* ---------- 折叠参数区 ---------- */
-.opts{border-top:1px solid var(--line);margin-top:2px;padding-top:2px}
+.opts{border-top:1px solid var(--line);margin-top:4px;padding-top:4px}
 .opt-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:15px 2px 6px;font-size:var(--fs-body);color:var(--t1);font-weight:700;flex-wrap:wrap}
 .opt-head .sum{font-weight:600;color:var(--t2);font-size:var(--fs-aux);display:flex;align-items:center;gap:6px}
-.opt-head .cv{transition:.25s;display:inline-block;font-size:var(--fs-min);color:var(--t3)}
+.opt-head .cv{transition:.25s;display:inline-flex;font-size:var(--fs-min);color:var(--t3)}
+.opt-head .cv svg{width:13px;height:13px}
 .opts.open .opt-head .cv{transform:rotate(180deg)}
-.opt-body{display:none;padding-top:10px}
+.opt-body{display:none;padding-top:8px}
 .opts.open .opt-body{display:block}
-.opt-line{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0}
+.opt-line{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0}
 .opt-line+.opt-line{border-top:1px dashed #f0f2f7}
 .opt-line .k{font-size:var(--fs-body);color:var(--t2);flex-shrink:0;width:70px;font-weight:500}
 .opt-line .v{flex:1;display:flex;justify-content:flex-end}
-.opt-line select{margin:0;padding:11px 14px;font-size:var(--fs-body);border-radius:11px;width:auto;min-width:120px;text-align:center;text-align-last:center}
+.opt-line select{margin:0;padding:12px 36px 12px 14px;font-size:var(--fs-body);border-radius:12px;width:auto;min-width:120px;text-align:center;text-align-last:center;background-position:right 13px center}
 .opt-line .seg{width:auto;flex:0 0 auto;min-width:150px}
-.opt-line .seg button{padding:11px 6px;font-size:var(--fs-body);font-weight:600}
+.opt-line .seg button{padding:12px 6px;font-size:var(--fs-body);font-weight:600}
+.seg{display:flex;background:#eef1f7;border-radius:13px;padding:3px;gap:2px}
+.seg button{flex:1;padding:11px 2px;border:0;background:transparent;font-size:14px;color:var(--t2);border-radius:11px;transition:.2s;font-weight:500}
+.seg button.on{background:#fff;color:var(--main-deep);font-weight:700;box-shadow:0 2px 6px rgba(23,29,43,.12)}
 
 /* ---------- 底部固定操作栏 ---------- */
 .dock{
-  padding:6px 2px calc(6px + env(safe-area-inset-bottom));
-  margin:0 -2px;
+  position:fixed;left:0;right:0;bottom:0;z-index:5;
+  padding:14px 18px calc(14px + env(safe-area-inset-bottom));
+  background:linear-gradient(180deg,rgba(242,245,251,0),var(--bg) 36%);
 }
-html.big .dock{padding:10px 2px calc(10px + env(safe-area-inset-bottom))}
-.dock .big{box-shadow:0 8px 22px rgba(79,124,255,.34)}
+.dock-inner{max-width:480px;margin:0 auto}
+html.big .dock-inner{max-width:560px}
+.dock .big{box-shadow:0 10px 26px rgba(74,108,247,.36)}
 .dock .big.ready{animation:pulse 2s ease-in-out infinite}
-@keyframes pulse{0%,100%{box-shadow:0 8px 22px rgba(79,124,255,.34)}50%{box-shadow:0 8px 26px rgba(79,124,255,.5)}}
+@keyframes pulse{0%,100%{box-shadow:0 10px 26px rgba(74,108,247,.36)}50%{box-shadow:0 10px 30px rgba(74,108,247,.52)}}
 
 /* ---------- 打印进度 ---------- */
-.prog{display:none;margin-top:12px}
+.prog{display:none;margin-top:2px}
 .prog.show{display:block}
-.prog-bar{height:6px;border-radius:99px;background:#eef1f6;overflow:hidden;margin-bottom:9px}
-.prog-bar i{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,var(--main),#7aa0ff);transition:width .5s ease}
-.prog-bar.done i{background:linear-gradient(90deg,var(--ok),#7fd3ad)}
+.prog-bar{height:8px;border-radius:99px;background:#eef1f6;overflow:hidden;margin-bottom:10px}
+.prog-bar i{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,var(--main),#7b95ff);transition:width .5s ease}
+.prog-bar.done i{background:linear-gradient(90deg,var(--ok),#67d3a1)}
 .prog-bar.bad i{background:var(--err)}
 .prog-txt{font-size:var(--fs-body);color:var(--t2);display:flex;align-items:center;gap:6px;line-height:1.6}
-.prog.done .prog-txt{color:#1c7c53;font-weight:600}
+.prog.done .prog-txt{color:#157a48;font-weight:600}
 .prog.bad .prog-txt{color:var(--err);font-weight:600}
 
+/* ---------- 状态卡 ---------- */
+.state{
+  text-align:center;margin-top:10px;padding:13px;border-radius:14px;
+  background:var(--ok-soft);color:var(--ok);font-size:var(--fs-body);font-weight:600;display:none;line-height:1.6;
+}
+.state.bad{background:var(--err-soft);color:var(--err)}
+
+/* ---------- 打印记录 ---------- */
+.records{padding:18px 16px 8px}
+.rec-title{display:flex;justify-content:space-between;align-items:center;font-size:var(--fs-lg);font-weight:800;color:var(--t1);margin-bottom:4px;padding:0 2px}
+.rec-title a{color:var(--main);font-size:var(--fs-aux);font-weight:600;padding:4px 0 4px 12px}
+.rec{display:flex;justify-content:space-between;align-items:center;padding:14px 2px;border-bottom:1px solid var(--line)}
+.rec:last-child{border:0}
+.rec .fname{font-weight:700;font-size:var(--fs-body);max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rec .meta{color:var(--t3);font-size:var(--fs-aux);margin-top:4px;line-height:1.55}
+.rec .right{text-align:right;flex-shrink:0;margin-left:10px}
+.badge{display:inline-block;padding:5px 13px;border-radius:99px;font-size:var(--fs-min);font-weight:700}
+.q{background:#eef1f6;color:var(--t2)}
+.p{background:var(--warn-soft);color:#a3620e}
+.c{background:var(--ok-soft);color:#157a48}
+.x{background:var(--err-soft);color:var(--err)}
+.cancel-link{color:var(--err);font-size:var(--fs-aux);margin-top:8px;display:inline-block;font-weight:600;padding:4px 0}
+.empty{
+  color:var(--t3);text-align:center;padding:26px 10px;font-size:var(--fs-aux);line-height:1.7;
+}
+.empty .ico{width:38px;height:38px;margin:0 auto 10px;color:#c4cbda}
+a{cursor:pointer}
+
+/* ---------- Toast ---------- */
+.toast{
+  position:fixed;top:76px;left:50%;transform:translateX(-50%);
+  background:rgba(23,29,43,.92);color:#fff;padding:12px 24px;border-radius:99px;
+  font-size:var(--fs-body);display:none;z-index:30;backdrop-filter:blur(6px);box-shadow:0 10px 28px rgba(0,0,0,.22);
+  max-width:86vw;text-align:center;
+}
+
 /* ---------- 管理后台 ---------- */
-.tabs{display:flex;gap:6px;background:#eaeef6;border-radius:13px;padding:4px;margin-bottom:16px}
-.tabs button{flex:1;padding:12px 0;border:0;background:transparent;border-radius:10px;font-size:var(--fs-body);color:var(--t2);font-weight:600;transition:.2s}
-.tabs button.on{background:#fff;color:var(--main-deep);font-weight:700;box-shadow:0 1px 4px rgba(28,35,51,.1)}
+.tabs{display:flex;gap:4px;background:#e8ecf4;border-radius:15px;padding:4px;margin-bottom:16px}
+.tabs button{flex:1;padding:12px 0;border:0;background:transparent;border-radius:12px;font-size:var(--fs-body);color:var(--t2);font-weight:600;transition:.2s}
+.tabs button.on{background:#fff;color:var(--main-deep);font-weight:700;box-shadow:0 2px 8px rgba(23,29,43,.12)}
 .pane{display:none}.pane.on{display:block}
-.sec-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
-.sec-head h3{font-size:var(--fs-lg);font-weight:800}
-.btn{padding:11px 16px;border:0;border-radius:11px;font-size:var(--fs-aux);font-weight:700;transition:.2s}
+.sec-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.sec-head h3{font-size:var(--fs-lg);font-weight:800;display:flex;align-items:center;gap:9px}
+.sec-head h3 .ico{width:20px;height:20px;color:var(--main)}
+.btn{padding:11px 16px;border:0;border-radius:12px;font-size:var(--fs-aux);font-weight:700;transition:.2s}
 .btn:active{transform:scale(.97)}
-.btn-main{background:linear-gradient(135deg,var(--main),var(--main-deep));color:#fff;box-shadow:0 3px 10px rgba(79,124,255,.3)}
-.btn-ghost{background:#f0f2f7;color:var(--t2)}
-.btn-danger{background:#fdebec;color:var(--err)}
-.btn-ok{background:#e6f6ee;color:var(--ok)}
-.usr{padding:13px 0;border-bottom:1px solid var(--line)}
-.usr:last-child{border:0}
+.btn-main{background:linear-gradient(135deg,#5b7bff,var(--main-deep));color:#fff;box-shadow:0 4px 12px rgba(74,108,247,.3)}
+.btn-ghost{background:#eef1f7;color:var(--t2)}
+.btn-danger{background:var(--err-soft);color:var(--err)}
+.btn-ok{background:var(--ok-soft);color:var(--ok)}
+.usr{display:flex;gap:13px;padding:15px 0;border-bottom:1px solid var(--line)}
+.usr:last-child{border:0;padding-bottom:6px}
+.avatar{
+  width:46px;height:46px;border-radius:15px;flex-shrink:0;color:#fff;font-weight:800;
+  display:flex;align-items:center;justify-content:center;font-size:19px;
+  background:linear-gradient(135deg,#5b7bff,var(--main-deep));box-shadow:0 4px 10px rgba(74,108,247,.25);
+}
+.avatar.g2{background:linear-gradient(135deg,#22b07d,#0e8f60);box-shadow:0 4px 10px rgba(24,160,94,.25)}
+.avatar.g3{background:linear-gradient(135deg,#f0a13c,#dd7f10);box-shadow:0 4px 10px rgba(224,133,16,.25)}
+.avatar.g4{background:linear-gradient(135deg,#9a7bf0,#7452d9);box-shadow:0 4px 10px rgba(122,87,224,.25)}
+.usr-body{flex:1;min-width:0}
 .usr-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
 .usr-name{font-weight:700;font-size:var(--fs-lg);display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .usr-meta{color:var(--t2);font-size:var(--fs-aux);margin-top:5px;line-height:1.6}
-.usr-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
-.usr-acts .btn{padding:9px 13px;font-size:var(--fs-aux);border-radius:10px}
-.tag{display:inline-block;padding:3px 9px;border-radius:6px;font-size:var(--fs-min);font-weight:700;line-height:1.7}
-.tag.admin{background:#eef1ff;color:var(--main-deep)}
+.usr-acts{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
+.usr-acts .btn{padding:9px 14px;font-size:var(--fs-aux);border-radius:11px}
+.tag{display:inline-block;padding:3px 10px;border-radius:7px;font-size:var(--fs-min);font-weight:700;line-height:1.7}
+.tag.admin{background:var(--main-soft);color:var(--main-deep)}
 .tag.off{background:#f2f3f6;color:var(--t3)}
-.tag.dis{background:#fdebec;color:var(--err)}
-.fld{margin-bottom:13px}
+.tag.dis{background:var(--err-soft);color:var(--err)}
+.fld{margin-bottom:14px}
 .fld label{display:block;font-size:var(--fs-body);color:var(--t1);font-weight:600;margin-bottom:8px}
 .fld input,.fld select{margin-bottom:0}
-.fld .hint{font-size:var(--fs-aux);color:var(--t3);margin-top:6px;line-height:1.55}
+.fld .hint{font-size:var(--fs-aux);color:var(--t3);margin-top:7px;line-height:1.55}
 .stat-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:4px}
-.stat{background:#f7f9fd;border-radius:13px;padding:14px 10px;text-align:center}
-.stat .n{font-size:22px;font-weight:800;color:var(--main-deep);line-height:1.2}
-.stat .t{font-size:11.5px;color:var(--t3);margin-top:3px}
+.stat{border-radius:16px;padding:15px 8px;text-align:center;border:1px solid rgba(255,255,255,.8);box-shadow:var(--shadow-1)}
+.stat.b1{background:linear-gradient(160deg,#f0f4ff,#fbfcff)}
+.stat.b2{background:linear-gradient(160deg,#e9f9f0,#fbfefc)}
+.stat.b3{background:linear-gradient(160deg,#fff5e6,#fffdf8)}
+.stat .n{font-size:24px;font-weight:800;line-height:1.2}
+.stat.b1 .n{color:var(--main-deep)}
+.stat.b2 .n{color:#157a48}
+.stat.b3 .n{color:#a3620e}
+.stat .t{font-size:12px;color:var(--t3);margin-top:4px;font-weight:500}
 .dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
-.dot.on{background:var(--ok);box-shadow:0 0 0 3px rgba(34,160,107,.18)}
+.dot.on{background:var(--ok);box-shadow:0 0 0 3px rgba(24,160,94,.18)}
 .dot.off{background:#c3cad6}
-.mask{position:fixed;inset:0;background:rgba(20,26,40,.42);display:none;z-index:20;backdrop-filter:blur(2px)}
+.agent-line{display:flex;align-items:center;gap:9px;padding:13px 15px;border-radius:14px;background:#f7f9fd;font-size:var(--fs-aux);color:var(--t2);font-weight:600;margin:12px 0;line-height:1.6}
+.mask{position:fixed;inset:0;background:rgba(18,24,38,.45);display:none;z-index:20;backdrop-filter:blur(3px)}
 .mask.show{display:flex;align-items:flex-end;justify-content:center}
-.sheet{background:#fff;width:100%;max-width:480px;border-radius:22px 22px 0 0;padding:22px 20px calc(22px + env(safe-area-inset-bottom));animation:up .25s ease}
-@keyframes up{from{transform:translateY(40px);opacity:.6}to{transform:none;opacity:1}}
-.sheet h3{font-size:17px;font-weight:700;margin-bottom:16px}
-.jobline{display:flex;justify-content:space-between;align-items:center;padding:13px 0;border-bottom:1px solid var(--line);font-size:var(--fs-body)}
+.sheet{
+  background:#fff;width:100%;max-width:480px;border-radius:24px 24px 0 0;
+  padding:14px 22px calc(22px + env(safe-area-inset-bottom));animation:up .28s cubic-bezier(.2,.8,.3,1);
+  box-shadow:0 -12px 40px rgba(18,24,38,.2);
+}
+.sheet .grip{width:40px;height:4px;border-radius:99px;background:#e2e6ee;margin:0 auto 16px}
+@keyframes up{from{transform:translateY(60px);opacity:.5}to{transform:none;opacity:1}}
+.sheet h3{font-size:19px;font-weight:800;margin-bottom:18px}
+.jobline{display:flex;justify-content:space-between;align-items:center;padding:14px 2px;border-bottom:1px solid var(--line);font-size:var(--fs-body)}
 .jobline:last-child{border:0}
 .jobline .who{color:var(--main-deep);font-weight:700;font-size:var(--fs-aux)}
+.jobline .fn{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px}
 
 /* ---------- 运行环境切换 ---------- */
-.env-badge{padding:3px 10px;border-radius:99px;font-size:11.5px;font-weight:600;background:#f2f3f6;color:var(--t2)}
-.env-badge.prod{background:#e6f6ee;color:#1c7c53}
-.env-badge.test{background:#fff2e3;color:#a05a13}
+.env-badge{padding:4px 12px;border-radius:99px;font-size:12px;font-weight:700;background:#f2f3f6;color:var(--t2)}
+.env-badge.prod{background:var(--ok-soft);color:#157a48}
+.env-badge.test{background:var(--warn-soft);color:#a3620e}
 .mode-switch{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
 .mode-switch button{
-  border:1.5px solid var(--line);background:#fafbfd;border-radius:14px;padding:13px 12px;text-align:left;
+  border:1.5px solid var(--line);background:#f8fafd;border-radius:16px;padding:14px 13px;text-align:left;
   transition:.2s;display:flex;flex-direction:column;gap:4px;
 }
-.mode-switch button b{font-size:14px;color:var(--t1);font-weight:700}
-.mode-switch button span{font-size:11.5px;color:var(--t3);line-height:1.45}
-.mode-switch button.on{border-color:var(--main);background:#f2f6ff;box-shadow:0 0 0 3px rgba(79,124,255,.1)}
+.mode-switch button b{font-size:15px;color:var(--t1);font-weight:700}
+.mode-switch button span{font-size:12px;color:var(--t3);line-height:1.5}
+.mode-switch button.on{border-color:var(--main);background:var(--main-soft);box-shadow:0 0 0 3px rgba(74,108,247,.12)}
 .mode-switch button.on b{color:var(--main-deep)}
-.mode-tip{font-size:12.5px;color:var(--t2);background:#f7f9fd;border-radius:11px;padding:11px 13px;line-height:1.65}
-.mode-tip.warn{background:#fff9ec;color:#8a6116}
-.mode-tip.ok{background:#f0fbf4;color:#1c7c53}
+.mode-tip{font-size:13px;color:var(--t2);background:#f7f9fd;border-radius:13px;padding:12px 14px;line-height:1.65}
+.mode-tip.warn{background:#fff8e8;color:#8a6116}
+.mode-tip.ok{background:var(--ok-soft);color:#157a48}
 </style>
 </head>
 <body>
@@ -267,20 +366,26 @@ html.big .dock{padding:10px 2px calc(10px + env(safe-area-inset-bottom))}
 <div class="wrap">
   <!-- 登录 -->
   <div id="login" hidden>
-    <h1><span class="logo">🖨️</span>家印</h1>
-    <p class="sub-title">全家人共用的家庭打印</p>
-    <div class="card">
-      <input id="u" placeholder="用户名" autocomplete="username">
-      <input id="p" type="password" placeholder="密码" autocomplete="current-password">
-      <button class="big" onclick="login()">登 录</button>
-      <p class="empty" style="padding:12px 0 0">登录一次 · 30 天免密</p>
+    <div class="hero">
+      <div class="hero-logo"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></span></div>
+      <h1>家印</h1>
+      <p class="sub">全家人共用的家庭打印机</p>
     </div>
+    <div class="card login-card">
+      <label class="lbl" for="u">用户名</label>
+      <input id="u" placeholder="例如 mama" autocomplete="username">
+      <label class="lbl" for="p">密码</label>
+      <input id="p" type="password" placeholder="输入密码" autocomplete="current-password">
+      <button class="big" onclick="login()">登 录</button>
+      <p class="login-foot"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>登录一次 · 30 天免密</p>
+    </div>
+    <p class="secure-line"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>文件端到端加密，只有家里的打印机能看到</p>
   </div>
 
   <!-- 主界面 -->
   <div id="main" hidden>
     <div class="appbar">
-      <div class="brand"><span class="logo">🖨️</span>家印</div>
+      <div class="brand"><span class="logo"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg></span></span>家印</div>
       <div class="acts">
         <span class="who" id="hello"></span>
         <a class="fsbtn" id="fsBtn" onclick="toggleFont()" title="切换字号">A+</a>
@@ -303,14 +408,14 @@ html.big .dock{padding:10px 2px calc(10px + env(safe-area-inset-bottom))}
 
     <div class="card">
       <div class="drop" id="drop" onclick="f.click()">
-        <span class="icon">📄</span>
-        <span id="dropTitle">点这里，选择要打印的文件</span>
-        <div style="font-size:12.5px;color:var(--t3);margin-top:6px;font-weight:400" id="sub">PDF、图片、Word、文本，最大 50MB</div>
+        <div class="drop-ico"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></span></div>
+        <div id="dropTitle">点这里，选择要打印的文件</div>
+        <div class="sub" id="sub">PDF、图片、Word、文本，最大 50MB</div>
       </div>
       <input type="file" id="f" hidden accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png,.docx,.txt">
 
       <div class="file-chip" id="chip">
-        <div class="fi" id="chipIcon">📄</div>
+        <div class="fi" id="chipIcon"></div>
         <div class="ft"><div class="fn" id="chipName"></div><div class="fs" id="chipSize"></div></div>
         <button class="fx" onclick="clearFile(event)" title="移除">✕</button>
       </div>
@@ -318,7 +423,7 @@ html.big .dock{padding:10px 2px calc(10px + env(safe-area-inset-bottom))}
       <div class="opts" id="opts">
         <div class="opt-head" onclick="toggleOpts()">
           <span>打印设置</span>
-          <span class="sum"><span id="optSum">1份 · 黑白 · 单面 · A4</span><span class="cv">▼</span></span>
+          <span class="sum"><span id="optSum">1份 · 黑白 · 单面 · A4</span><span class="cv"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg></span></span></span>
         </div>
         <div class="opt-body">
           <div class="opt-line">
@@ -353,10 +458,6 @@ html.big .dock{padding:10px 2px calc(10px + env(safe-area-inset-bottom))}
       <div class="state" id="st" hidden></div>
     </div>
 
-    <div class="dock">
-      <button class="big" id="go" onclick="doPrint()">开始打印</button>
-    </div>
-
     <div class="card records">
       <div class="rec-title">打印记录<a onclick="loadJobs()">刷新</a></div>
       <div id="jobs"><p class="empty">加载中…</p></div>
@@ -365,9 +466,10 @@ html.big .dock{padding:10px 2px calc(10px + env(safe-area-inset-bottom))}
 
   <!-- 管理后台 -->
   <div id="admin" hidden>
-    <h1><span class="logo">⚙️</span>管理后台</h1>
-    <p class="sub-title">成员 · 记录 · 设备 · 设置</p>
-    <div class="top"><span>家印 · 家庭管理员</span><span><a onclick="closeAdmin()">返回打印</a></span></div>
+    <div class="appbar">
+      <div class="brand"><span class="logo"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span></span>管理后台</div>
+      <div class="acts"><a onclick="closeAdmin()">返回打印</a></div>
+    </div>
 
     <div class="tabs" id="adminTabs">
       <button data-p="u" class="on" onclick="switchPane('u')">成员</button>
@@ -392,7 +494,7 @@ html.big .dock{padding:10px 2px calc(10px + env(safe-area-inset-bottom))}
       </div>
       <div class="card">
         <div class="sec-head"><h3>管理操作日志</h3><button class="btn btn-ghost" onclick="loadAudit()">刷新</button></div>
-        <p style="font-size:12px;color:var(--t3);line-height:1.7;margin-bottom:10px">谁在什么时候做了什么改动。保留最近 90 天。</p>
+        <p style="font-size:13px;color:var(--t3);line-height:1.7;margin-bottom:10px">谁在什么时候做了什么改动。保留最近 90 天。</p>
         <div id="auditList"><p class="empty">加载中…</p></div>
       </div>
     </div>
@@ -402,13 +504,13 @@ html.big .dock{padding:10px 2px calc(10px + env(safe-area-inset-bottom))}
       <div class="card">
         <div class="sec-head"><h3>家里打印机状态</h3><button class="btn btn-ghost" onclick="loadAdminAgent()">刷新</button></div>
         <div class="stat-grid">
-          <div class="stat"><div class="n" id="dTotal">-</div><div class="t">累计任务</div></div>
-          <div class="stat"><div class="n" id="d24">-</div><div class="t">近 24 小时</div></div>
-          <div class="stat"><div class="n" id="dOn" style="font-size:15px;padding-top:6px">-</div><div class="t">连接状态</div></div>
+          <div class="stat b1"><div class="n" id="dTotal">-</div><div class="t">累计任务</div></div>
+          <div class="stat b2"><div class="n" id="d24">-</div><div class="t">近 24 小时</div></div>
+          <div class="stat b3"><div class="n" id="dOn" style="font-size:16px;padding-top:7px">-</div><div class="t">连接状态</div></div>
         </div>
-        <div style="font-size:13px;color:var(--t2);margin:14px 0 10px" id="dPrinters">—</div>
-        <p class="hint" style="font-size:12px;color:var(--t3);line-height:1.7;margin-bottom:12px">如果家庭端卡住不动，可在这里强制断开，家庭端会在 30 秒内自动重连。</p>
-        <button class="btn btn-danger" style="width:100%;padding:12px" onclick="kickAgent()">强制断开家庭端连接</button>
+        <div class="agent-line" id="dPrinters">—</div>
+        <p class="hint" style="font-size:13px;color:var(--t3);line-height:1.7;margin-bottom:12px">如果家庭端卡住不动，可在这里强制断开，家庭端会在 30 秒内自动重连。</p>
+        <button class="btn btn-danger" style="width:100%;padding:13px" onclick="kickAgent()">强制断开家庭端连接</button>
       </div>
     </div>
 
@@ -450,9 +552,17 @@ html.big .dock{padding:10px 2px calc(10px + env(safe-area-inset-bottom))}
   </div>
 </div>
 
+<!-- 底部固定主按钮（主界面） -->
+<div class="dock" id="dock" hidden>
+  <div class="dock-inner">
+    <button class="big idle" id="go" onclick="doPrint()">开始打印</button>
+  </div>
+</div>
+
 <!-- 弹层：新增成员 / 改密码 -->
 <div class="mask" id="mask" onclick="if(event.target===this)closeSheet()">
   <div class="sheet">
+    <div class="grip"></div>
     <h3 id="sheetTitle">添加家庭成员</h3>
     <div class="fld"><label>用户名（登录用，英文/数字）</label><input id="mU" placeholder="例如 mama" autocapitalize="off"></div>
     <div class="fld"><label>显示名称（给人看的）</label><input id="mD" placeholder="例如 妈妈"></div>
@@ -461,7 +571,7 @@ html.big .dock{padding:10px 2px calc(10px + env(safe-area-inset-bottom))}
       <select id="mA"><option value="0">普通成员（只能打印）</option><option value="1">管理员（可管理全部）</option></select>
     </div>
     <button class="big" id="mSave" onclick="submitSheet()">确认添加</button>
-    <button class="btn btn-ghost" style="width:100%;padding:12px;margin-top:10px" onclick="closeSheet()">取消</button>
+    <button class="btn btn-ghost" style="width:100%;padding:13px;margin-top:10px" onclick="closeSheet()">取消</button>
   </div>
 </div>
 <script>
@@ -470,6 +580,20 @@ let color=0,sides="one-sided",cur=0,timer=null;
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const $=i=>document.getElementById(i);
 const toast=m=>{const t=$("toast");t.textContent=m;t.style.display="block";setTimeout(()=>t.style.display="none",2600)};
+
+// ---------- 内联 SVG 图标（不依赖 emoji 字体，所有设备渲染一致） ----------
+const ICONS={
+  pdf:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15h6"/><path d="M12 12v6"/></svg>',
+  img:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>',
+  word:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13l2 5 2-5 2 5 2-5"/></svg>',
+  doc:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+  empty:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="13" y2="17"/></svg>',
+  printer:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>',
+  printerOff:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/><line x1="3" y1="3" x2="21" y2="21"/></svg>'
+};
+const emptyBox=(t)=>'<div class="empty"><span class="ico">'+ICONS.empty+'</span>'+(t||"还没有内容")+'</div>';
+
 async function api(p,o={}){const r=await fetch(p,{credentials:"include",...o});
   if(r.status==401){isAdmin=false;show("login");throw 0}
   const d=await r.json().catch(()=>({}));
@@ -485,14 +609,15 @@ document.querySelectorAll(".seg").forEach(s=>s.onclick=e=>{
 $("f").onchange=e=>{
   const f=e.target.files[0];
   if(!f)return;
-  $("chipIcon").textContent=/pdf/i.test(f.type)||/\.pdf$/i.test(f.name)?"📕":/image/i.test(f.type)?"🖼️":/word|officedocument/i.test(f.type)?"📘":"📄";
+  const icon=/pdf/i.test(f.type)||/\.pdf$/i.test(f.name)?ICONS.pdf:/image/i.test(f.type)?ICONS.img:/word|officedocument/i.test(f.type)?ICONS.word:ICONS.doc;
+  $("chipIcon").innerHTML=icon;
   $("chipName").textContent=f.name;
   $("chipSize").textContent=(f.size/1048576).toFixed(2)+" MB"+(f.size>50*1048576?"　⚠️ 超过 50MB 上限":"");
   $("chip").classList.add("show");
   $("drop").style.display="none";     // 选好文件后收起大方块，让设置区上移
   markStep(2);
   $("opts").classList.add("open");    // 选完文件自动展开设置，减少一次点击
-  $("go").classList.add("ready");
+  $("go").classList.remove("idle");$("go").classList.add("ready");
   $("st").hidden=true;
 };
 $("f").onclick=e=>e.stopPropagation();
@@ -503,7 +628,7 @@ function clearFile(ev){
   $("chip").classList.remove("show");
   $("drop").style.display="";
   $("opts").classList.remove("open");
-  $("go").classList.remove("ready");
+  $("go").classList.add("idle");$("go").classList.remove("ready");
   markStep(1);
   $("statusCard").hidden=true;
 }
@@ -526,8 +651,8 @@ function markStep(n){
   $("s2").className="s "+(n==2?"on":n>2?"ok":"");
   $("l2").className="line "+(n>2?"ok":"");
   $("s3").className="s "+(n>2?"on":"");
-  $("s1").querySelector("i").textContent=done?"✓":"1";
-  $("s2").querySelector("i").textContent=n>2?"✓":"2";
+  $("s1").querySelector("i").innerHTML=done?ICONS.check:"1";
+  $("s2").querySelector("i").innerHTML=n>2?ICONS.check:"2";
 }
 
 // ---------- 打印机状态条 ----------
@@ -536,12 +661,14 @@ function renderPstat(online,name){
   printerOnline=online;
   const el=$("pstat");
   el.className="pstat "+(online?"ok":"off");
-  el.innerHTML=online
-    ? `<span class="dot"></span>${esc(name||"家里打印机")} 在线，可立即打印`
-    : `<span class="dot"></span>打印机暂时离线，任务会先排队，联网后自动打印`;
+  el.innerHTML='<span class="st-ico">'+(online?ICONS.printer:ICONS.printerOff)+'</span><span>'
+    +(online?esc(name||"家里打印机")+" 在线，可立即打印":"打印机暂时离线，任务会先排队，联网后自动打印")+'</span>';
 }
 
-function show(id){for(const x of["login","main","admin"])$(x).hidden=(x!=id)}
+function show(id){
+  for(const x of["login","main","admin"])$(x).hidden=(x!=id);
+  $("dock").hidden=(id!="main");
+}
 async function login(){try{
   await api("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:$("u").value.trim(),password:$("p").value})});
   enter()}catch(e){e&&toast(e.message||"登录失败")}}
@@ -580,7 +707,7 @@ async function loadPrinters(){try{
   $("pr").innerHTML=l.map(p=>`<option>${esc(p.name)}${p.status!="online"?"（离线，可先排队）":""}</option>`).join("");
   const on=l.find(p=>p.status=="online");
   renderPstat(!!on,on?on.name:(l[0]&&l[0].name));
-}catch(e){$("pstat").className="pstat off";$("pstat").innerHTML="<span class='dot'></span>无法获取打印机状态，请检查家庭端是否在线"}}
+}catch(e){$("pstat").className="pstat off";$("pstat").innerHTML='<span class="st-ico">'+ICONS.printerOff+'</span><span>无法获取打印机状态，请检查家庭端是否在线</span>'}}
 
 // ---------- 端到端加密（AES-256-GCM，密钥由家庭密钥派生）----------
 const E2EE_SALT=new TextEncoder().encode("familyprint-e2ee-v1"),E2EE_ITERS=100000;
@@ -615,6 +742,9 @@ async function doPrint(){
   try{
     const j=await api("/api/print-jobs",{method:"POST",body:fd});
     cur=j.id;$("f").value="";
+    $("chip").classList.remove("show");$("drop").style.display="";
+    $("opts").classList.remove("open");   // 提交后收起设置，让进度卡成为视觉焦点
+    $("dock").hidden=true;                // 打印进行中隐藏底部按钮，避免遮挡内容
     $("statusCard").hidden=false;
     $("st").hidden=true;
     $("prog").className="prog show";
@@ -625,6 +755,7 @@ async function doPrint(){
     timer=setInterval(poll,4000);poll();loadJobs();
   }catch(e){toast(e.message);$("go").classList.add("ready")}
   $("go").disabled=false;$("go").textContent="开始打印";
+  $("go").classList.add("idle");$("go").classList.remove("ready");
 }
 const TXT={queued:"排队中",processing:"打印中…",completed:"已完成",canceled:"已取消",failed:"失败"};
 // 状态 → 进度条百分比 / 文案
@@ -651,7 +782,10 @@ async function poll(){
       $("progTxt").textContent=p[1];
     }
     if(["completed","canceled","failed"].includes(j.status)){
-      clearInterval(timer);timer=null;cur=0;loadJobs();
+      clearInterval(timer);timer=null;cur=0;
+      $("dock").hidden=false;   // 任务结束，恢复底部打印按钮
+      $("go").classList.add("idle");$("go").classList.remove("ready");
+      loadJobs();
     }
   }catch(e){}
 }
@@ -662,7 +796,7 @@ async function loadJobs(){
       `<div class="rec"><div style="min-width:0"><div class="fname">${esc(j.orig_name)}</div><div class="meta">${esc(j.created_at)} · ${j.copies}份 · ${j.color?"彩色":"黑白"} · ${(j.sides||"").startsWith("two")?"双面":"单面"}${j.error?`<br><span style="color:var(--warn)">${esc(j.error)}</span>`:""}</div></div>
       <div class="right"><span class="badge ${{queued:"q",processing:"p",completed:"c",canceled:"x",failed:"x"}[j.status]||"q"}">${TXT[j.status]||j.status}</span>
       ${j.status=="queued"?`<br><a class="cancel-link" onclick="cancel(${j.id})">取消</a>`:""}</div></div>`).join("")
-    :"<p class='empty'>还没有打印记录</p>";
+    :emptyBox("还没有打印记录，选个文件试试");
   }catch(e){}
 }
 async function cancel(id){try{await api(`/api/print-jobs/${id}/cancel`,{method:"POST"});loadJobs();toast("已取消")}catch(e){toast(e.message)}}
@@ -671,6 +805,8 @@ async function cancel(id){try{await api(`/api/print-jobs/${id}/cancel`,{method:"
 let isAdmin=false,sheetMode="add",sheetUid=0;
 const fmtTs=t=>{if(!t)return "从未";const d=new Date(t*1000),p=n=>String(n).padStart(2,"0");
   return `${d.getMonth()+1}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`};
+// 头像底色按 id 轮换，成员列表一眼能区分
+const AV=["","g2","g3","g4"];
 
 function openAdmin(){
   if(!isAdmin)return toast("仅管理员可进入");
@@ -694,15 +830,19 @@ async function loadAdminUsers(){
         off?'<span class="tag dis">已停用</span>':"",
         u.last_login?"":'<span class="tag off">从未登录</span>'
       ].join("");
+      const initial=esc((u.display_name||u.username||"?").slice(0,1));
       return `<div class="usr">
-        <div class="usr-top">
-          <div><div class="usr-name">${esc(u.display_name||u.username)}${tags}</div>
-          <div class="usr-meta">账号 ${esc(u.username)} · 打印 ${u.job_count} 次<br>最后登录 ${fmtTs(u.last_login)}</div></div>
-        </div>
-        <div class="usr-acts">
-          <button class="btn btn-ghost" onclick="openResetPw(${u.id},'${esc(u.username)}')">改密码</button>
-          <button class="btn ${off?"btn-ok":"btn-ghost"}" onclick="toggleUser(${u.id},${off?0:1})">${off?"启用":"停用"}</button>
-          <button class="btn btn-danger" onclick="delUser(${u.id},'${esc(u.username)}')">删除</button>
+        <div class="avatar ${AV[u.id%4]}">${initial}</div>
+        <div class="usr-body">
+          <div class="usr-top">
+            <div><div class="usr-name">${esc(u.display_name||u.username)}${tags}</div>
+            <div class="usr-meta">账号 ${esc(u.username)} · 打印 ${u.job_count} 次<br>最后登录 ${fmtTs(u.last_login)}</div></div>
+          </div>
+          <div class="usr-acts">
+            <button class="btn btn-ghost" onclick="openResetPw(${u.id},'${esc(u.username)}')">改密码</button>
+            <button class="btn ${off?"btn-ok":"btn-ghost"}" onclick="toggleUser(${u.id},${off?0:1})">${off?"启用":"停用"}</button>
+            <button class="btn btn-danger" onclick="delUser(${u.id},'${esc(u.username)}')">删除</button>
+          </div>
         </div></div>`;
     }).join(""):"<p class='empty'>还没有成员</p>";
   }catch(e){$("userList").innerHTML="<p class='empty'>"+(e.message||"加载失败")+"</p>"}
@@ -756,7 +896,7 @@ async function loadAdminJobs(){
     const jobs=await api("/api/admin/jobs");
     $("adminJobs").innerHTML=jobs.length?jobs.map(j=>
       `<div class="jobline"><div style="min-width:0">
-        <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px">${esc(j.orig_name)}</div>
+        <div class="fn">${esc(j.orig_name)}</div>
         <div class="usr-meta"><span class="who">${esc(j.username)}</span> · ${esc(j.created_at)} · ${j.copies}份 · ${j.color?"彩色":"黑白"}</div>
       </div><span class="badge ${{queued:"q",processing:"p",completed:"c",canceled:"x",failed:"x"}[j.status]||"q"}">${TXT[j.status]||esc(j.status)}</span></div>`
     ).join(""):"<p class='empty'>还没有打印记录</p>";
