@@ -634,9 +634,17 @@ func apiLogin(w http.ResponseWriter, r *http.Request) {
 	now := float64(time.Now().Unix())
 	db.Exec("UPDATE users SET failed=0, locked_until=0, last_login=? WHERE id=?", now, id)
 	days := effSessionDays()
+	// Secure 属性：仅 HTTPS 下才强制。纯 HTTP（内网 IP 直连）访问时若带 Secure，
+	// 浏览器会直接丢弃该 cookie，表现为「登录请求 200 但后续接口全 401、页面不跳转」。
+	// 用 COOKIE_INSECURE=1 显式放行 HTTP；否则按请求实际协议自动判断。
+	secure := os.Getenv("COOKIE_INSECURE") != "1" && requestIsHTTPS(r)
+	if os.Getenv("COOKIE_INSECURE") != "1" && !secure {
+		logReq(r, lvWarn, "检测到 HTTP 明文访问，会话 cookie 已放开 Secure 限制。"+
+			"内网自用可接受，公网部署请务必配置 HTTPS 反向代理")
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name: "fp_session", Value: makeToken(id, tokenVer), Path: "/",
-		MaxAge: days * 86400, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: true})
+		MaxAge: days * 86400, HttpOnly: true, SameSite: http.SameSiteLaxMode, Secure: secure})
 	logReq(r, lvInfo, "登录成功: %q（id=%d，管理员=%v，记住 %d 天，ip=%s）",
 		uname, id, admin == 1, days, maskIP(clientIP(r)))
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -686,6 +694,17 @@ func apiPrinters(w http.ResponseWriter, r *http.Request) {
 }
 
 var allowedExt = map[string]bool{".pdf": true, ".jpg": true, ".jpeg": true, ".png": true, ".docx": true, ".txt": true, ".enc": true} // .enc = 端到端加密文件
+
+// displayName：列表展示用的文件名。端到端加密的密文统一叫 print.enc，
+// 对家人没有意义；上传时网页端把真实文件名放在了设置摘要之外无法保留，
+// 因此密文任务显示友好的「加密文件」占位（解密后的原名只有家庭端能看到，
+// 由家庭端解密后上报日志；列表里不展示明文原名也避免云端泄露元数据）。
+func displayName(name string) string {
+	if strings.EqualFold(filepath.Ext(name), ".enc") {
+		return "加密文档"
+	}
+	return name
+}
 
 func apiCreateJob(w http.ResponseWriter, r *http.Request) {
 	u := requireUser(w, r)
@@ -823,7 +842,7 @@ func apiListJobs(w http.ResponseWriter, r *http.Request) {
 		rows.Scan(&id, &name, &printerName, &copies, &color, &sides, &paper, &status, &errMsg, &createdRaw)
 		created = time.Unix(int64(createdRaw), 0).Format("01-02 15:04")
 		jobs = append(jobs, map[string]interface{}{
-			"id": id, "orig_name": name, "printer_name": printerName, "copies": copies,
+			"id": id, "orig_name": displayName(name), "printer_name": printerName, "copies": copies,
 			"color": color, "sides": sides, "paper": paper, "status": status,
 			"error": errMsg, "created_at": created})
 	}

@@ -97,6 +97,86 @@ button{cursor:pointer;font-family:inherit}
 .empty{color:var(--t3);text-align:center;padding:20px;font-size:13.5px}
 a{cursor:pointer}
 
+/* ---------- 顶栏（吸顶，替代大标题占位） ---------- */
+.appbar{
+  position:sticky;top:0;z-index:6;display:flex;align-items:center;justify-content:space-between;
+  padding:10px 4px 12px;margin:-4px -4px 8px;
+  background:linear-gradient(180deg,rgba(245,247,251,.98) 70%,rgba(245,247,251,0));
+  backdrop-filter:blur(8px);
+}
+.appbar .brand{display:flex;align-items:center;gap:9px;font-size:17px;font-weight:800;letter-spacing:.5px}
+.appbar .brand .logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(135deg,var(--main),#7aa0ff);color:#fff;display:flex;align-items:center;justify-content:center;font-size:16px;box-shadow:0 3px 10px rgba(79,124,255,.32)}
+.appbar .acts{display:flex;align-items:center;gap:4px}
+.appbar .acts a{font-size:13.5px;color:var(--t2);padding:7px 11px;border-radius:10px;font-weight:500}
+.appbar .acts a:active{background:rgba(0,0,0,.05)}
+.appbar .who{font-size:12.5px;color:var(--t3);margin-right:2px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---------- 步骤条 ---------- */
+.steps{display:flex;align-items:center;gap:6px;margin:0 0 14px;padding:0 2px}
+.steps .s{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--t3);font-weight:600;white-space:nowrap}
+.steps .s i{width:19px;height:19px;border-radius:50%;background:#e7ebf4;color:#98a1b0;display:inline-flex;align-items:center;justify-content:center;font-style:normal;font-size:11px;font-weight:700;transition:.2s}
+.steps .s.on{color:var(--main-deep)}
+.steps .s.on i{background:var(--main);color:#fff;box-shadow:0 0 0 3px rgba(79,124,255,.16)}
+.steps .s.ok i{background:var(--ok);color:#fff}
+.steps .line{flex:1;height:2px;border-radius:2px;background:#e7ebf4;min-width:10px}
+.steps .line.ok{background:linear-gradient(90deg,var(--ok),#7fd3ad)}
+
+/* ---------- 打印机状态条 ---------- */
+.pstat{display:flex;align-items:center;gap:8px;padding:10px 13px;border-radius:12px;background:#f3f7ff;font-size:13px;color:var(--main-deep);margin-bottom:14px;font-weight:500}
+.pstat .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.pstat.ok{background:#f0fbf4;color:#1c7c53}
+.pstat.ok .dot{background:var(--ok);box-shadow:0 0 0 3px rgba(34,160,107,.16)}
+.pstat.off{background:#fdf3ec;color:#a05a13}
+.pstat.off .dot{background:var(--warn);box-shadow:0 0 0 3px rgba(232,137,12,.16)}
+.pstat .spin{width:12px;height:12px;border:2px solid rgba(79,124,255,.25);border-top-color:var(--main);border-radius:50%;animation:sp .7s linear infinite;flex-shrink:0}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* ---------- 已选文件卡 ---------- */
+.file-chip{display:none;align-items:center;gap:11px;padding:12px 13px;border-radius:13px;background:#f7f9fd;border:1px solid #e6ecf8;margin-bottom:12px}
+.file-chip.show{display:flex}
+.file-chip .fi{width:36px;height:36px;border-radius:10px;background:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;box-shadow:0 1px 3px rgba(28,35,51,.08)}
+.file-chip .ft{flex:1;min-width:0}
+.file-chip .fn{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-chip .fs{font-size:12px;color:var(--t3);margin-top:2px}
+.file-chip .fx{width:28px;height:28px;border-radius:9px;background:#fff;color:var(--t3);border:0;font-size:15px;flex-shrink:0;line-height:1}
+.file-chip .fx:active{background:#fdebec;color:var(--err)}
+
+/* ---------- 折叠参数区 ---------- */
+.opts{border-top:1px solid var(--line);margin-top:2px;padding-top:2px}
+.opt-head{display:flex;align-items:center;justify-content:space-between;padding:13px 2px 4px;font-size:13.5px;color:var(--t2);font-weight:600}
+.opt-head .sum{font-weight:500;color:var(--t3);font-size:12.5px;display:flex;align-items:center;gap:5px}
+.opt-head .cv{transition:.25s;display:inline-block;font-size:11px;color:var(--t3)}
+.opts.open .opt-head .cv{transform:rotate(180deg)}
+.opt-body{display:none;padding-top:10px}
+.opts.open .opt-body{display:block}
+.opt-line{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0}
+.opt-line+.opt-line{border-top:1px dashed #f0f2f7}
+.opt-line .k{font-size:13px;color:var(--t2);flex-shrink:0;width:56px}
+.opt-line .v{flex:1;display:flex;justify-content:flex-end}
+.opt-line select{margin:0;padding:9px 12px;font-size:14px;border-radius:10px;width:auto;min-width:110px;text-align:center;text-align-last:center}
+.opt-line .seg{width:auto;flex:0 0 auto;min-width:150px}
+.opt-line .seg button{padding:8px 4px;font-size:13px}
+
+/* ---------- 底部固定操作栏 ---------- */
+.dock{
+  position:sticky;bottom:0;z-index:6;padding:12px 2px calc(12px + env(safe-area-inset-bottom));
+  margin:0 -2px;background:linear-gradient(0deg,var(--bg) 72%,rgba(245,247,251,0));
+}
+.dock .big{box-shadow:0 8px 22px rgba(79,124,255,.34)}
+.dock .big.ready{animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 8px 22px rgba(79,124,255,.34)}50%{box-shadow:0 8px 26px rgba(79,124,255,.5)}}
+
+/* ---------- 打印进度 ---------- */
+.prog{display:none;margin-top:12px}
+.prog.show{display:block}
+.prog-bar{height:6px;border-radius:99px;background:#eef1f6;overflow:hidden;margin-bottom:9px}
+.prog-bar i{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,var(--main),#7aa0ff);transition:width .5s ease}
+.prog-bar.done i{background:linear-gradient(90deg,var(--ok),#7fd3ad)}
+.prog-bar.bad i{background:var(--err)}
+.prog-txt{font-size:13px;color:var(--t2);display:flex;align-items:center;gap:6px;line-height:1.6}
+.prog.done .prog-txt{color:#1c7c53;font-weight:600}
+.prog.bad .prog-txt{color:var(--err);font-weight:600}
+
 /* ---------- 管理后台 ---------- */
 .tabs{display:flex;gap:6px;background:#eaeef6;border-radius:13px;padding:4px;margin-bottom:16px}
 .tabs button{flex:1;padding:10px 0;border:0;background:transparent;border-radius:10px;font-size:14.5px;color:var(--t2);font-weight:500;transition:.2s}
@@ -159,26 +239,83 @@ a{cursor:pointer}
 
   <!-- 主界面 -->
   <div id="main" hidden>
-    <h1><span class="logo">🖨️</span>家印</h1>
-    <p class="sub-title">选文件 · 点打印 · 回家取</p>
-    <div class="top"><span id="hello"></span><span><a id="adminLink" hidden onclick="openAdmin()">管理</a> <a onclick="logout()">退出</a></span></div>
+    <div class="appbar">
+      <div class="brand"><span class="logo">🖨️</span>家印</div>
+      <div class="acts">
+        <span class="who" id="hello"></span>
+        <a id="adminLink" hidden onclick="openAdmin()">管理</a>
+        <a onclick="logout()">退出</a>
+      </div>
+    </div>
+
+    <div class="steps" id="steps">
+      <div class="s on" id="s1"><i>1</i>选文件</div>
+      <div class="line" id="l1"></div>
+      <div class="s" id="s2"><i>2</i>确认设置</div>
+      <div class="line" id="l2"></div>
+      <div class="s" id="s3"><i>3</i>打印取件</div>
+    </div>
+
+    <div class="pstat" id="pstat"><span class="spin"></span>正在检测打印机…</div>
+
     <div class="tip" id="wxTip">💡 微信里使用：点"选择文件"后选 <b>照片</b> 或 <b>浏览</b>；聊天里的文件先<b>长按→保存到手机</b>再选。建议右上角"···"→收藏本页。</div>
+
     <div class="card">
-      <div class="drop" onclick="f.click()"><span class="icon">📄</span>点击选择要打印的文件<div style="font-size:12.5px;color:var(--t3);margin-top:6px;font-weight:400" id="sub">PDF / 图片 / Word / 文本，≤50MB</div></div>
+      <div class="drop" id="drop" onclick="f.click()">
+        <span class="icon">📄</span>
+        <span id="dropTitle">点击选择要打印的文件</span>
+        <div style="font-size:12.5px;color:var(--t3);margin-top:6px;font-weight:400" id="sub">PDF / 图片 / Word / 文本，≤50MB</div>
+      </div>
       <input type="file" id="f" hidden accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png,.docx,.txt">
-      <div class="info" id="finfo"></div>
-      <div class="row">
-        <div><div class="lbl">打印机</div><select id="pr"></select></div>
-        <div><div class="lbl">份数</div><select id="cp"><option>1</option><option>2</option><option>3</option><option>5</option></select></div>
+
+      <div class="file-chip" id="chip">
+        <div class="fi" id="chipIcon">📄</div>
+        <div class="ft"><div class="fn" id="chipName"></div><div class="fs" id="chipSize"></div></div>
+        <button class="fx" onclick="clearFile(event)" title="移除">✕</button>
       </div>
-      <div class="row">
-        <div><div class="lbl">颜色</div><div class="seg" id="sc"><button data-v="0" class="on">黑白</button><button data-v="1">彩色</button></div></div>
-        <div><div class="lbl">单双面</div><div class="seg" id="ss"><button data-v="one-sided" class="on">单面</button><button data-v="two-sided-long-edge">双面</button></div></div>
+
+      <div class="opts" id="opts">
+        <div class="opt-head" onclick="toggleOpts()">
+          <span>打印设置</span>
+          <span class="sum"><span id="optSum">1份 · 黑白 · 单面 · A4</span><span class="cv">▼</span></span>
+        </div>
+        <div class="opt-body">
+          <div class="opt-line">
+            <span class="k">打印机</span>
+            <span class="v"><select id="pr"></select></span>
+          </div>
+          <div class="opt-line">
+            <span class="k">份数</span>
+            <span class="v"><select id="cp"><option>1</option><option>2</option><option>3</option><option>5</option><option>10</option></select></span>
+          </div>
+          <div class="opt-line">
+            <span class="k">颜色</span>
+            <span class="v"><div class="seg" id="sc"><button data-v="0" class="on">黑白</button><button data-v="1">彩色</button></div></span>
+          </div>
+          <div class="opt-line">
+            <span class="k">单双面</span>
+            <span class="v"><div class="seg" id="ss"><button data-v="one-sided" class="on">单面</button><button data-v="two-sided-long-edge">双面</button></div></span>
+          </div>
+          <div class="opt-line">
+            <span class="k">纸张</span>
+            <span class="v"><select id="pa"><option>A4</option><option>A5</option><option>Letter</option></select></span>
+          </div>
+        </div>
       </div>
-      <div class="row"><div><div class="lbl">纸张</div><select id="pa"><option>A4</option><option>A5</option><option>Letter</option></select></div></div>
-      <button class="big" id="go" onclick="doPrint()">开始打印</button>
+    </div>
+
+    <div class="card" id="statusCard" hidden>
+      <div class="prog show" id="prog">
+        <div class="prog-bar" id="progBar"><i></i></div>
+        <div class="prog-txt" id="progTxt">—</div>
+      </div>
       <div class="state" id="st" hidden></div>
     </div>
+
+    <div class="dock">
+      <button class="big" id="go" onclick="doPrint()">开始打印</button>
+    </div>
+
     <div class="card records">
       <div class="rec-title">打印记录<a onclick="loadJobs()">刷新</a></div>
       <div id="jobs"><p class="empty">加载中…</p></div>
@@ -287,30 +424,90 @@ async function api(p,o={}){const r=await fetch(p,{credentials:"include",...o});
 document.querySelectorAll(".seg").forEach(s=>s.onclick=e=>{
   if(e.target.tagName!="BUTTON")return;
   s.querySelectorAll("button").forEach(b=>b.classList.remove("on"));e.target.classList.add("on");
-  if(s.id=="sc")color=+e.target.dataset.v;else sides=e.target.dataset.v});
-$("f").onchange=e=>{const f=e.target.files[0];
-  if(f){$("finfo").style.display="block";$("finfo").textContent="📎 "+f.name+"（"+(f.size/1048576).toFixed(1)+"MB）";$("st").hidden=true}};
+  if(s.id=="sc")color=+e.target.dataset.v;else sides=e.target.dataset.v;
+  updateOpts()});
+
+// ---------- 选文件 ----------
+$("f").onchange=e=>{
+  const f=e.target.files[0];
+  if(!f)return;
+  $("chipIcon").textContent=/pdf/i.test(f.type)||/\.pdf$/i.test(f.name)?"📕":/image/i.test(f.type)?"🖼️":/word|officedocument/i.test(f.type)?"📘":"📄";
+  $("chipName").textContent=f.name;
+  $("chipSize").textContent=(f.size/1048576).toFixed(2)+" MB"+(f.size>50*1048576?"　⚠️ 超过 50MB 上限":"");
+  $("chip").classList.add("show");
+  $("drop").style.display="none";     // 选好文件后收起大方块，让设置区上移
+  markStep(2);
+  $("opts").classList.add("open");    // 选完文件自动展开设置，减少一次点击
+  $("go").classList.add("ready");
+  $("st").hidden=true;
+};
 $("f").onclick=e=>e.stopPropagation();
+
+function clearFile(ev){
+  ev.stopPropagation();
+  $("f").value="";
+  $("chip").classList.remove("show");
+  $("drop").style.display="";
+  $("opts").classList.remove("open");
+  $("go").classList.remove("ready");
+  markStep(1);
+  $("statusCard").hidden=true;
+}
+function toggleOpts(){
+  const o=$("opts");
+  o.classList.toggle("open");
+  updateOpts();
+}
+function updateOpts(){
+  const c=$("cp").value,pa=$("pa").value;
+  $("optSum").textContent=`${c}份 · ${color?"彩色":"黑白"} · ${sides=="one-sided"?"单面":"双面"} · ${pa}`;
+}
+$("cp").onchange=updateOpts;$("pa").onchange=updateOpts;
+
+// ---------- 步骤条 ----------
+function markStep(n){
+  const done=n>1;
+  $("s1").className="s "+(done?"ok":"on");
+  $("l1").className="line "+(done?"ok":"");
+  $("s2").className="s "+(n==2?"on":n>2?"ok":"");
+  $("l2").className="line "+(n>2?"ok":"");
+  $("s3").className="s "+(n>2?"on":"");
+  $("s1").querySelector("i").textContent=done?"✓":"1";
+  $("s2").querySelector("i").textContent=n>2?"✓":"2";
+}
+
+// ---------- 打印机状态条 ----------
+let printerOnline=null;
+function renderPstat(online,name){
+  printerOnline=online;
+  const el=$("pstat");
+  el.className="pstat "+(online?"ok":"off");
+  el.innerHTML=online
+    ? `<span class="dot"></span>${esc(name||"家里打印机")} 在线，可立即打印`
+    : `<span class="dot"></span>打印机暂时离线，任务会先排队，联网后自动打印`;
+}
 
 function show(id){for(const x of["login","main","admin"])$(x).hidden=(x!=id)}
 async function login(){try{
   await api("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:$("u").value.trim(),password:$("p").value})});
   enter()}catch(e){e&&toast(e.message||"登录失败")}}
-async function logout(){await api("/api/logout",{method:"POST"});show("login")}
+async function logout(){await api("/api/logout",{method:"POST"});show("login");$("p").value=""}
 
 async function enter(){
-  show("main");loadPrinters();loadJobs();
+  show("main");markStep(1);loadPrinters();loadJobs();
   try{
     const me=await api("/api/me");
     isAdmin=me.is_admin==1;
-    $("hello").textContent=(me.display_name||me.username)+"，欢迎";
+    $("hello").textContent=(me.display_name||me.username);
     $("adminLink").hidden=!isAdmin;
   }catch(e){}
 }
 async function loadPrinters(){try{
   const l=await api("/api/printers");
   $("pr").innerHTML=l.map(p=>`<option>${esc(p.name)}${p.status!="online"?"（离线，可先排队）":""}</option>`).join("");
-}catch(e){}}
+  const on=l.find(p=>p.status=="online");
+  renderPstat(!!on,on?on.name:(l[0]&&l[0].name));
+}catch(e){$("pstat").className="pstat off";$("pstat").innerHTML="<span class='dot'></span>无法获取打印机状态，请检查家庭端是否在线"}}
 
 // ---------- 端到端加密（AES-256-GCM，密钥由家庭密钥派生）----------
 const E2EE_SALT=new TextEncoder().encode("familyprint-e2ee-v1"),E2EE_ITERS=100000;
@@ -341,37 +538,44 @@ async function doPrint(){
   const fd=new FormData();
   fd.append("file",f);fd.append("printer",$("pr").value);fd.append("copies",$("cp").value);
   fd.append("color",color);fd.append("sides",sides);fd.append("paper",$("pa").value);
-  $("go").disabled=true;$("go").textContent="正在发送…";
+  $("go").disabled=true;$("go").textContent="正在发送…";$("go").classList.remove("ready");
   try{
     const j=await api("/api/print-jobs",{method:"POST",body:fd});
-    cur=j.id;$("f").value="";$("finfo").style.display="none";
-    $("st").hidden=false;$("st").style.display="block";
-    $("st").classList.remove("bad");      // 复用状态栏时先清掉上一次的失败样式
-    $("st").innerHTML=j.agent_online
-      ?"✅ 已发送到打印机，<span id='js'>排队中</span>——回家取件即可"
-      :"⏳ 家里打印机暂时没连上，任务已排队，<span id='js'>联网后会自动打印</span>";
-    if(timer)clearInterval(timer);       // 连打多份时避免旧定时器叠加
+    cur=j.id;$("f").value="";
+    $("statusCard").hidden=false;
+    $("st").hidden=true;
+    $("prog").className="prog show";
+    $("progBar").className="prog-bar";$("progBar").querySelector("i").style.width="18%";
+    $("progTxt").textContent=j.agent_online?"已发送到打印机，正在排队…":"打印机离线，任务已排队，联网后自动打印…";
+    markStep(3);
+    if(timer)clearInterval(timer);
     timer=setInterval(poll,4000);poll();loadJobs();
-  }catch(e){toast(e.message)}
+  }catch(e){toast(e.message);$("go").classList.add("ready")}
   $("go").disabled=false;$("go").textContent="开始打印";
 }
-const TXT={queued:"排队中",processing:"打印中…",completed:"已完成 ✅",canceled:"已取消",failed:"失败"};
+const TXT={queued:"排队中",processing:"打印中…",completed:"已完成",canceled:"已取消",failed:"失败"};
+// 状态 → 进度条百分比 / 文案
+const PROG={queued:[22,"已发送，等待打印机取任务…"],processing:[62,"打印机正在打印，请稍候…"],completed:[100,"打印完成，回家取件即可 ✅"],canceled:[100,"任务已取消"],failed:[100,"打印失败"]};
 async function poll(){
   if(!cur)return;
   try{
     const jobs=await api("/api/print-jobs");const j=jobs.find(x=>x.id==cur);
     if(!j)return;
+    const p=PROG[j.status]||[22,TXT[j.status]||j.status];
+    $("progBar").querySelector("i").style.width=p[0]+"%";
     if(j.status=="failed"){
-      // 失败：整条状态栏改为红色错误提示，避免和「✅ 已发送」拼成矛盾句子
-      $("st").classList.add("bad");
-      $("st").textContent="❌ 打印失败："+((j.error||"").slice(0,80)||"未知原因");
+      $("prog").className="prog show bad";
+      $("progBar").className="prog-bar bad";
+      $("progTxt").innerHTML="❌ 打印失败："+esc((j.error||"").slice(0,80)||"未知原因");
     }else if(j.status=="canceled"){
-      $("st").classList.add("bad");
-      $("st").textContent="已取消";
+      $("prog").className="prog show bad";
+      $("progTxt").textContent="任务已取消";
+    }else if(j.status=="completed"){
+      $("prog").className="prog show done";
+      $("progBar").className="prog-bar done";
+      $("progTxt").textContent=p[1];
     }else{
-      const el=$("js");
-      if(el)el.textContent=TXT[j.status]||j.status;
-      if(j.status=="completed")$("st").classList.remove("bad");
+      $("progTxt").textContent=p[1];
     }
     if(["completed","canceled","failed"].includes(j.status)){
       clearInterval(timer);timer=null;cur=0;loadJobs();
