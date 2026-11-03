@@ -70,6 +70,15 @@
         <button class="fx" onclick="clearFile(event)" title="移除">✕</button>
       </div>
 
+      <!-- 预览：选完文件立刻在本地显示，确认没选错再打印（老人最需要这一步） -->
+      <div class="preview" id="preview">
+        <div class="pv-head" onclick="togglePreview()">
+          <span class="pv-title"><span class="ico pv-eye"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></span>预览</span>
+          <span class="pv-toggle" id="pvToggle">收起</span>
+        </div>
+        <div class="pv-body" id="pvBody"></div>
+      </div>
+
       <div class="opts" id="opts">
         <div class="opt-head" onclick="toggleOpts()">
           <span>打印设置</span>
@@ -314,11 +323,88 @@ $("f").onchange=e=>{
   $("opts").classList.add("open");    // 选完文件自动展开设置，减少一次点击
   $("go").classList.remove("idle");$("go").classList.add("ready");
   $("st").hidden=true;
+  renderPreview(f);                    // 选完立刻预览，确认没选错再打印
 };
 $("f").onclick=e=>e.stopPropagation();
 
+// ---------- 文件预览（全部在手机本地完成，文件不上传、不外泄） ----------
+let pvURL=null,pvOpen=true,pvSeq=0;
+const PV_MSG={
+  word:'<svg class="m-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M8 13l2 5 2-5 2 5 2-5"/></svg>',
+  warn:'<svg class="m-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
+};
+function releasePV(){if(pvURL){URL.revokeObjectURL(pvURL);pvURL=null}}
+function togglePreview(){
+  pvOpen=!pvOpen;
+  $("pvBody").classList.toggle("collapsed",!pvOpen);
+  $("pvToggle").textContent=pvOpen?"收起":"展开";
+}
+function pvMsg(ico,title,desc,extra){
+  $("pvBody").classList.remove("collapsed");
+  $("pvBody").innerHTML=`<div class="pv-msg">${ico}<div class="m-tx"><div class="m-t">${title}</div><div class="m-d">${desc}</div></div></div>${extra||""}`;
+}
+function renderPreview(f){
+  releasePV();
+  const seq=++pvSeq;                   // 防止连续换文件时旧异步任务回填
+  pvOpen=true;
+  $("pvBody").classList.remove("collapsed");
+  $("pvToggle").textContent="收起";
+  $("preview").classList.add("show");
+  const name=(f.name||"").toLowerCase(),type=f.type||"";
+
+  // 1) 图片：手机能直接显示的，用 objectURL 渲染
+  if(/^image\//.test(type)&&!/tiff|heic|heif/.test(type)){
+    const url=URL.createObjectURL(f);pvURL=url;
+    $("pvBody").innerHTML=`<img class="pv-img" id="pvImg" src="${url}" alt="">`
+      +`<p class="pv-note">长按图片或点“看大图”可放大检查细节。</p>`
+      +`<div class="pv-acts"><button class="btn btn-ghost" onclick="pvBig()">看大图</button></div>`;
+    return;
+  }
+
+  // 2) PDF：交给手机自带的阅读器渲染（不引入 pdf.js，省流量）
+  if(/pdf/.test(type)||/\.pdf$/.test(name)){
+    const url=URL.createObjectURL(f);pvURL=url;
+    $("pvBody").innerHTML=`<embed class="pv-frame" type="application/pdf" src="${url}">`
+      +`<p class="pv-note">如果上面一片空白，说明手机浏览器不支持内嵌 PDF。文件仍可正常打印，也可以点下面单独打开看看。</p>`
+      +`<div class="pv-acts"><button class="btn btn-ghost" onclick="pvBig()">用其他应用打开</button></div>`;
+    return;
+  }
+
+  // 3) 纯文本：读前 2000 字（够老人确认内容，不卡手机）
+  if(/^text\//.test(type)||/\.(txt|csv|log|md)$/.test(name)){
+    const rd=new FileReader();
+    rd.onload=()=>{
+      if(seq!==pvSeq)return;             // 已换文件，丢弃
+      const raw=String(rd.result||"");
+      const cut=raw.slice(0,2000);
+      $("pvBody").innerHTML=`<pre class="pv-txt">${esc(cut)||"（这个文件是空的）"}</pre>`
+        +(raw.length>2000?`<p class="pv-note">只显示前 2000 字，实际打印的是完整内容。</p>`:"");
+    };
+    rd.onerror=()=>{if(seq===pvSeq)pvMsg(PV_MSG.warn,"读不出这个文件","可能是编码特殊，不影响打印。")};
+    rd.readAsText(f,"utf-8");
+    return;
+  }
+
+  // 4) Word：浏览器里无法可靠还原排版，明确告知而不是假装预览
+  if(/\.docx?$/.test(name)||/word|officedocument/.test(type)){
+    pvMsg(PV_MSG.word,"Word 文档没法在手机里预览",
+      "可以放心打印，家庭端会按原样送去打印机。如果打出来排版乱了，建议让对方另存为 PDF 再发一次。");
+    return;
+  }
+
+  // 5) 其他：不报错，只说明
+  pvMsg(PV_MSG.warn,"这种文件不支持预览", esc(f.name||"未知文件")+"。你仍然可以直接打印，打印前打印机会自行处理。");
+}
+function pvBig(){
+  if(!pvURL)return;
+  window.open(pvURL,"_blank");
+}
+
 function clearFile(ev){
   ev.stopPropagation();
+  releasePV();pvSeq++;                 // 作废进行中的预览读取
+  $("preview").classList.remove("show");
+  $("pvBody").innerHTML="";
   $("f").value="";
   $("chip").classList.remove("show");
   $("drop").style.display="";
@@ -438,6 +524,8 @@ async function doPrint(){
   try{
     const j=await api("/api/print-jobs",{method:"POST",body:fd});
     cur=j.id;$("f").value="";
+    releasePV();pvSeq++;
+    $("preview").classList.remove("show");$("pvBody").innerHTML="";
     $("chip").classList.remove("show");$("drop").style.display="";
     $("opts").classList.remove("open");   // 提交后收起设置，让进度卡成为视觉焦点
     $("dock").hidden=true;                // 打印进行中隐藏底部按钮，避免遮挡内容
