@@ -475,12 +475,17 @@ function markStep(n){
 
 // ---------- 打印机状态条 ----------
 let printerOnline=null;
-function renderPstat(online,name){
-  printerOnline=online;
+function renderPstat(state,name){
+  printerOnline=(state=="online");
   const el=$("pstat");
-  el.className="pstat "+(online?"ok":"off");
-  el.innerHTML='<span class="st-ico">'+(online?ICONS.printer:ICONS.printerOff)+'</span><span>'
-    +(online?esc(name||"家里打印机")+" 在线，可立即打印":"打印机暂时离线，任务会先排队，联网后自动打印")+'</span>';
+  const map={
+    online:  ["ok",  ICONS.printer,    esc(name||"家里打印机")+" 在线，可立即打印"],
+    unknown: ["off", ICONS.printerOff, "还没检测到打印机——家庭端连上后 30 秒内会自动探测，若一直未变请检查家庭端配置"],
+    offline: ["off", ICONS.printerOff, "打印机暂时离线，任务会先排队，联网后自动打印"]
+  };
+  const m=map[state]||map.offline;
+  el.className="pstat "+m[0];
+  el.innerHTML='<span class="st-ico">'+m[1]+'</span><span>'+m[2]+'</span>';
 }
 
 function show(id){
@@ -522,11 +527,11 @@ async function enter(){
 }
 async function loadPrinters(){try{
   const l=await api("/api/printers");
-  $("pr").innerHTML=l.map(p=>`<option>${esc(p.name)}${p.status!="online"?"（离线，可先排队）":""}</option>`).join("");
+  $("pr").innerHTML=l.map(p=>`<option>${esc(p.name)}${p.status!="online"?(p.status=="offline"?"（离线，可先排队）":"（未检测到）"):""}</option>`).join("");
   $("pr").dispatchEvent(new Event("change"));   // 通知自定义下拉刷新菜单与按钮文字
   const on=l.find(p=>p.status=="online");
-  renderPstat(!!on,on?on.name:(l[0]&&l[0].name));
-}catch(e){$("pstat").className="pstat off";$("pstat").innerHTML='<span class="st-ico">'+ICONS.printerOff+'</span><span>无法获取打印机状态，请检查家庭端是否在线</span>'}}
+  renderPstat(on?"online":(l[0]?l[0].status:"offline"),on?on.name:(l[0]&&l[0].name));
+}catch(e){renderPstat("offline");}}
 
 // ---------- 端到端加密（AES-256-GCM，密钥由家庭密钥派生）----------
 const E2EE_SALT=new TextEncoder().encode("familyprint-e2ee-v1"),E2EE_ITERS=100000;

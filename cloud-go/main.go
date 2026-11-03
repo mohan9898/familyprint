@@ -551,7 +551,10 @@ func wsAgent(w http.ResponseWriter, r *http.Request) {
 		case "status":
 			onAgentStatus(msg.JobID, msg.Status, msg.Error)
 		case "printers":
-			db.Exec("CREATE TABLE IF NOT EXISTS printers(name TEXT PRIMARY KEY, status TEXT)")
+			// printers 表带 updated_at：agent 每 30 秒上报一次，超过 90 秒没更新
+			// 就视为状态过期（agent 掉线/关机），网页不能再显示"在线"。
+			db.Exec("CREATE TABLE IF NOT EXISTS printers(name TEXT PRIMARY KEY, status TEXT, updated_at INTEGER)")
+			db.Exec("ALTER TABLE printers ADD COLUMN updated_at INTEGER") // 旧表补列（已存在时报错忽略）
 			for _, p := range msg.List {
 				// 只在上报状态发生变化时打日志，避免每 30 秒刷一条
 				var prev string
@@ -563,7 +566,7 @@ func wsAgent(w http.ResponseWriter, r *http.Request) {
 						logInfo("打印机「%s」在线", p.Name)
 					}
 				}
-				db.Exec("INSERT OR REPLACE INTO printers(name,status) VALUES(?,?)", p.Name, p.Status)
+				db.Exec("INSERT OR REPLACE INTO printers(name,status,updated_at) VALUES(?,?,?)", p.Name, p.Status, time.Now().Unix())
 			}
 		}
 	}
@@ -692,17 +695,24 @@ func apiPrinters(w http.ResponseWriter, r *http.Request) {
 		Status string `json:"status"`
 	}
 	var list []pr
-	rows, err := db.Query("SELECT name, status FROM printers")
+	rows, err := db.Query("SELECT name, status, COALESCE(updated_at,0) FROM printers")
 	if err == nil {
 		for rows.Next() {
 			var p pr
-			rows.Scan(&p.Name, &p.Status)
+			var updatedAt int64
+			rows.Scan(&p.Name, &p.Status, &updatedAt)
+			// agent 每 30 秒上报一次；超过 90 秒没更新 = agent 已掉线，状态作废
+			if updatedAt > 0 && time.Now().Unix()-updatedAt > 90 {
+				p.Status = "unknown"
+			}
 			list = append(list, p)
 		}
 		rows.Close()
 	}
 	if len(list) == 0 {
-		list = []pr{{Name: "家里打印机", Status: "online"}}
+		// 兜底占位：家庭端还没上报过任何打印机时给一个默认项，避免下拉为空。
+		// 状态必须是 unknown 而不是 online——没探活过就不能声称在线（伪造在线会让用户白跑一趟）。
+		list = []pr{{Name: "家里打印机", Status: "unknown"}}
 	}
 	json.NewEncoder(w).Encode(list)
 }
@@ -1168,11 +1178,15 @@ func apiAdminAgent(w http.ResponseWriter, r *http.Request) {
 	db.QueryRow("SELECT COUNT(*) FROM print_jobs").Scan(&total)
 	db.QueryRow("SELECT COUNT(*) FROM print_jobs WHERE created_at>?", float64(time.Now().Add(-24*time.Hour).Unix())).Scan(&today)
 	var printers []map[string]string
-	rows, err := db.Query("SELECT name, status FROM printers")
+	rows, err := db.Query("SELECT name, status, COALESCE(updated_at,0) FROM printers")
 	if err == nil {
 		for rows.Next() {
 			var n, s string
-			rows.Scan(&n, &s)
+			var updatedAt int64
+			rows.Scan(&n, &s, &updatedAt)
+			if updatedAt > 0 && time.Now().Unix()-updatedAt > 90 {
+				s = "unknown" // 与用户侧口径一致：90 秒没上报 = 状态过期
+			}
 			printers = append(printers, map[string]string{"name": n, "status": s})
 		}
 		rows.Close()

@@ -392,10 +392,20 @@ func reportPrinters(ws *wsConn) {
 			if err != nil {
 				status, reason = "offline", "探测失败: "+err.Error()
 			} else {
+				body, _ := io.ReadAll(io.LimitReader(rsp.Body, 1<<20))
 				rsp.Body.Close()
-				// 只要打印机在 HTTP 层有响应（含 4xx/5xx 的 IPP 错误），就说明设备在线
-				if rsp.StatusCode/100 == 5 {
-					status, reason = "offline", "打印机返回 "+rsp.Status
+				// 严格判定：只有 IPP 成功响应（HTTP 2xx 且 IPP 状态码 OK）才算在线。
+				// 之前只要 HTTP 层有响应（哪怕 4xx）就报在线——路由器/其他设备
+				// 占用 631 端口时会造成"没接打印机也显示在线"的误报。
+				if rsp.StatusCode != http.StatusOK {
+					status, reason = "offline", fmt.Sprintf("打印机返回 HTTP %s（631 端口被其他设备占用？）", rsp.Status)
+				} else {
+					m := &goipp.Message{}
+					if derr := m.Decode(bytes.NewReader(body)); derr != nil {
+						status, reason = "offline", "IPP 响应解析失败（对端不是 IPP 打印机？）"
+					} else if goipp.Code(m.Code) != goipp.Code(goipp.StatusOk) {
+						status, reason = "offline", fmt.Sprintf("打印机返回 IPP 状态 %v", m.Code)
+					}
 				}
 			}
 		}
