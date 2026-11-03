@@ -229,6 +229,39 @@ button{cursor:pointer;font-family:inherit}
 .pv-acts .btn{flex:1;padding:11px;font-size:var(--fs-aux);border-radius:11px}
 html.big .pv-img,html.big .pv-frame{max-height:48vh;height:48vh}
 
+/* Word 文档预览（docx-preview 渲染） */
+.pv-docx{
+  max-height:60vh;overflow:auto;border-radius:10px;background:#f0f2f5;
+  border:1px solid var(--line);padding:10px;-webkit-overflow-scrolling:touch;
+}
+.pv-docx .pv-loading{
+  display:flex;align-items:center;gap:10px;justify-content:center;
+  padding:36px 10px;font-size:var(--fs-aux);color:var(--t3);
+}
+.pv-docx .pv-loading .spin{
+  width:18px;height:18px;border:2px solid var(--main-soft);border-top-color:var(--main);
+  border-radius:50%;display:inline-block;animation:pvspin .8s linear infinite;
+}
+@keyframes pvspin{to{transform:rotate(360deg)}}
+/* docx-preview 输出的页面容器 */
+.pv-docx .docx-wrapper{
+  background:transparent !important;padding:0 !important;
+  display:flex;flex-direction:column;gap:10px;
+}
+.pv-docx .docx-wrapper>section.docx{
+  box-shadow:var(--shadow-1) !important;border-radius:6px;margin:0 auto !important;
+  background:#fff;
+}
+/* 手机上按容器宽度自适应，避免横向滚动 */
+.pv-docx .docx-wrapper>section.docx{
+  width:100% !important;min-width:0 !important;padding:24px 18px !important;
+}
+.pv-docx .docx table{border-collapse:collapse;max-width:100%}
+.pv-docx .docx table td,.pv-docx .docx table th{border:1px solid #c8ccd4;padding:4px 6px}
+.pv-docx .docx p{margin:0 0 6px}
+.pv-docx .docx img{max-width:100%;height:auto}
+html.big .pv-docx{max-height:52vh}
+
 /* ---------- 折叠参数区 ---------- */
 .opts{border-top:1px solid var(--line);margin-top:4px;padding-top:4px}
 .opt-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:15px 2px 6px;font-size:var(--fs-body);color:var(--t1);font-weight:700;flex-wrap:wrap}

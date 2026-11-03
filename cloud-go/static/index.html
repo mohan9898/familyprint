@@ -385,10 +385,35 @@ function renderPreview(f){
     return;
   }
 
-  // 4) Word：浏览器里无法可靠还原排版，明确告知而不是假装预览
+  // 4) Word：用 docx-preview 在本地把 docx 还原成 HTML 渲染
+  //    两个库合计 170KB，按需加载（选到 Word 才拉），不拖慢首屏
   if(/\.docx?$/.test(name)||/word|officedocument/.test(type)){
-    pvMsg(PV_MSG.word,"Word 文档没法在手机里预览",
-      "可以放心打印，家庭端会按原样送去打印机。如果打出来排版乱了，建议让对方另存为 PDF 再发一次。");
+    if(/\.doc$/.test(name)&&!/\.docx$/.test(name)){
+      pvMsg(PV_MSG.word,"老版 Word（.doc）没法预览",
+        "可以放心打印。想先看清楚的话，让对方「另存为」.docx 或 PDF 再发一次。");
+      return;
+    }
+    $("pvBody").innerHTML=`<div class="pv-docx" id="pvDocx"><div class="pv-loading"><span class="spin"></span>正在打开文档…</div></div>
+      <p class="pv-note">预览按原文档排版还原；如果手机字号偏小，可点右上角 A+ 放大或双指缩放。</p>`;
+    loadScript("/vendor/jszip.min.js")
+      .then(()=>loadScript("/vendor/docx-preview.min.js"))
+      .then(()=>{
+        if(seq!==pvSeq)return;                 // 已换文件
+        return f.arrayBuffer().then(buf=>{
+          if(seq!==pvSeq)return;
+          return docx.renderAsync(buf,$("pvDocx"),null,{
+            className:"docx",inWrapper:true,breakPages:true,
+            ignoreWidth:false,ignoreHeight:false,ignoreFonts:false,
+            useBase64URL:true,renderHeaders:false,renderFooters:false
+          });
+        });
+      })
+      .catch(e=>{
+        if(seq!==pvSeq)return;
+        $("pvBody").innerHTML="";
+        pvMsg(PV_MSG.warn,"这个 Word 文档打不开预览",
+          "文件可能已损坏，或用了特殊的加密/嵌入对象。仍可直接打印。");
+      });
     return;
   }
 
@@ -398,6 +423,18 @@ function renderPreview(f){
 function pvBig(){
   if(!pvURL)return;
   window.open(pvURL,"_blank");
+}
+
+// 按需加载外部脚本（同一地址只加载一次）
+const _loaded={};
+function loadScript(src){
+  if(_loaded[src])return _loaded[src];
+  _loaded[src]=new Promise((ok,bad)=>{
+    const s=document.createElement("script");
+    s.src=src;s.onload=ok;s.onerror=()=>{delete _loaded[src];bad(new Error("加载失败:"+src))};
+    document.head.appendChild(s);
+  });
+  return _loaded[src];
 }
 
 function clearFile(ev){
