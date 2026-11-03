@@ -1,26 +1,14 @@
-/* 家印 · 设计令牌（tokens.css）
-   改配色/字号/圆角/阴影只动这个文件；html.big 为适老化大字号覆盖 */
+/* 家印 · 基础样式（base.css）：重置、页面骨架、输入控件 */
 
-:root{
-  --main:#F27C2E;--main-deep:#D96517;--main-soft:#FFF1E6;
-  --ok:#18a05e;--ok-soft:#e8f8ef;--warn:#e08510;--warn-soft:#fdf3e3;--err:#e5484d;--err-soft:#fdecec;
-  --bg:#f2f5fb;--card:#ffffff;
-  --t1:#171d2b;--t2:#4c5566;--t3:#8b93a5;
-  --line:#e9edf5;--radius:20px;
-  --shadow-1:0 1px 2px rgba(23,29,43,.05),0 6px 20px rgba(23,29,43,.06);
-  --shadow-2:0 2px 4px rgba(23,29,43,.06),0 12px 32px rgba(23,29,43,.10);
-  /* 适老化基准字号：正文 18px，辅助 16px（老年用户可读性下限） */
-  --fs-body:18px;   /* 正文 / 输入框 */
-  --fs-lg:20px;     /* 强调文字 */
-  --fs-title:26px;  /* 区块标题 */
-  --fs-aux:16px;    /* 次要说明 */
-  --fs-min:15px;    /* 极小标注（徽章等，兜底下限） */
-  --fs-btn:20px;    /* 主按钮 */
+*{box-sizing:border-box;margin:0;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei",sans-serif;-webkit-tap-highlight-color:transparent;-webkit-text-size-adjust:100%}
+body{
+  background:
+    radial-gradient(900px 420px at 85% -8%, rgba(242,124,46,.10), transparent 60%),
+    radial-gradient(700px 380px at -10% 12%, rgba(24,160,94,.07), transparent 55%),
+    var(--bg);
+  color:var(--t1);min-height:100vh;
 }
-/* 超大字号模式（管理员可在设置里开，或老人自己点顶栏「A+」） */
-html.big{
-  --fs-body:22px;--fs-lg:24px;--fs-title:30px;--fs-aux:19px;--fs-min:17px;--fs-btn:24px;
-}
-
-/* 提示：页面背景渐变、输入控件基础样式分别在 base.css 与 components.css；
-   换主题色时同步检查 components.css 中带 #FBA24D / #F58B3C 的渐变（主色亮阶） */
+.wrap{max-width:480px;margin:0 auto;padding:16px 18px calc(140px + env(safe-area-inset-bottom))}
+svg{display:block}
+.ico{display:inline-flex;flex-shrink:0}
+.ico svg{width:100%;height:100%}

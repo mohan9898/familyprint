@@ -21,6 +21,3 @@
 html.big{
   --fs-body:22px;--fs-lg:24px;--fs-title:30px;--fs-aux:19px;--fs-min:17px;--fs-btn:24px;
 }
-
-/* 提示：页面背景渐变、输入控件基础样式分别在 base.css 与 components.css；
-   换主题色时同步检查 components.css 中带 #FBA24D / #F58B3C 的渐变（主色亮阶） */
