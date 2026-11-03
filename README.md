@@ -25,13 +25,14 @@
 | [五](#五方案二docker-手动部署) | 方案二：Docker 手动部署 | 想了解细节 |
 | [六](#六方案三二进制一键部署) | **方案三：二进制一键部署** | 不想装 Docker |
 | [七](#七方案四二进制手动部署) | 方案四：二进制手动部署 | 高级用户 |
-| [八](#八测试打印) | 部署完成后测试 | 所有人 |
-| [九](#九管理员功能) | 网页管理后台 | 管理员 |
-| [十](#十交给家人) | 给家人发使用说明 | 所有人 |
-| [十一](#十一进阶端到端加密推荐开启) | 端到端加密 | 有隐私需求 |
-| [十二](#十二日志怎么看) | 日志查看与排错 | 排问题时 |
-| [十三](#十三日常维护) | 备份/迁移/升级 | 所有人 |
-| [十四](#十四故障排查) | 常见问题对照表 | 排问题时 |
+| [八](#八方案五windows-家庭端图文步骤) | **方案五：Windows 家庭端（图文步骤）** | 家里只有 Windows 电脑 |
+| [九](#九测试打印) | 部署完成后测试 | 所有人 |
+| [十](#十管理员功能) | 网页管理后台 | 管理员 |
+| [十一](#十一交给家人) | 给家人发使用说明 | 所有人 |
+| [十二](#十二进阶端到端加密推荐开启) | 端到端加密 | 有隐私需求 |
+| [十三](#十三日志怎么看) | 日志查看与排错 | 排问题时 |
+| [十四](#十四日常维护) | 备份/迁移/升级 | 所有人 |
+| [十五](#十五故障排查) | 常见问题对照表 | 排问题时 |
 | [附录](#附录) | 参数表/架构对照/源码构建 | 按需 |
 
 ---
@@ -93,7 +94,7 @@ openssl rand -hex 32
 
 1. 打印机屏幕：设置 → 网络设置 → 查看 IP（如 `192.168.1.100`）
 2. 到路由器管理页，给这个 IP 绑定**静态分配**（防止 IP 变动）
-3. IPP 地址 = `ipp://192.168.1.100:631/ipp/print`（把 IP 换成你的；个别品牌路径不同，试不通看[故障排查](#十四故障排查)）
+3. IPP 地址 = `ipp://192.168.1.100:631/ipp/print`（把 IP 换成你的；个别品牌路径不同，试不通看[故障排查](#十五故障排查)）
 
 ---
 
@@ -504,7 +505,7 @@ file /usr/local/bin/fp-cloud    # 应显示 ELF 64-bit LSB executable, x86-64
 ```
 
 > 🇨🇳 上面已带加速前缀；直连就删掉 `https://ghfast.top/`。
-> 🍎 Mac / 🪟 Windows 用户去 [Releases 页](https://github.com/mohan9898/familyprint/releases) 下载对应 `darwin-*` / `*-windows-amd64.exe` 文件。
+> 🪟 **Windows 用户请看[方案五 · Windows 家庭端](#八方案五windows-家庭端图文步骤)**，有图形界面的保姆级步骤。
 
 **（可选但推荐）手动校验完整性**：
 
@@ -672,7 +673,292 @@ journalctl -u fp -n 30 --no-pager   # 应看到「开始监听」
 
 ---
 
-## 八、测试打印
+## 八、方案五：Windows 家庭端（图文步骤）
+
+> **什么时候用**：家里只有一台 Windows 电脑当"打印服务器"，不想折腾 NAS / 树莓派。
+> **前提**：这台电脑要**经常开着**（打印机才能随时响应）。笔记本合盖休眠会导致离线。
+> **不需要**：不需要装 Docker、不需要装 Python / Java、不需要装任何打印机驱动。
+
+### 8.1 先确认三件事
+
+打开「设置 → 系统 → 系统信息」，确认：
+
+| 项目 | 要求 | 不符怎么办 |
+|------|------|-----------|
+| 系统类型 | 64 位（x64） | 32 位不支持，请换设备 |
+| Windows 版本 | Windows 10 或 11 | Win7/8 未测试，建议升级 |
+
+> Windows on ARM（部分 Surface）**不支持**，请用 Linux 设备。
+
+然后确认你的打印机有 **IPP 地址**，形如 `ipp://192.168.1.100:631/ipp/print`。
+查法见[第二章 · 找到打印机的 IPP 地址](#-找到打印机的-ipp-地址家庭端要用)。
+
+### 8.2 下载 fp-agent
+
+**方式一（浏览器，推荐给新手）**
+
+1. 打开 [Releases 页](https://github.com/mohan9898/familyprint/releases)
+2. 找到最新版本（如 `v1.4.0`），点开 **Assets**
+3. 下载 **`fp-agent-windows-amd64.exe`**（约 5.5MB）
+
+> 下载慢？把链接前面加上 `https://ghfast.top/` 再访问。
+
+**方式二（命令行）**
+
+按 `Win + R`，输入 `powershell` 回车，粘贴：
+
+```powershell
+# 建个固定目录，避免文件散落在下载文件夹
+$dir = "$env:USERPROFILE\familyprint"
+New-Item -ItemType Directory -Force -Path $dir | Out-Null
+
+# 下载（带加速前缀，直连就删掉 https://ghfast.top/）
+Invoke-WebRequest `
+  -Uri "https://ghfast.top/https://github.com/mohan9898/familyprint/releases/latest/download/fp-agent-windows-amd64.exe" `
+  -OutFile "$dir\fp-agent.exe"
+
+# 确认下载成功：应输出文件大小（约 5.5MB）
+Get-Item "$dir\fp-agent.exe" | Select-Object Name, Length
+```
+
+### 8.3 ⚠️ 解除"已阻止"标记（必做）
+
+Windows 从网上下载的 exe 会带"来自网络"标记，直接双击会被 SmartScreen 拦下，或运行时静默失败。
+
+**图形方式**：右键 `fp-agent.exe` → **属性** → 底部勾选 **"解除锁定"** → 确定。
+
+**命令行方式**（等价）：
+
+```powershell
+Unblock-File "$env:USERPROFILE\familyprint\fp-agent.exe"
+```
+
+> 若双击时仍弹「Windows 已保护你的电脑」：点 **更多信息** → **仍要运行**。
+> 这是因为程序没有花钱买代码签名证书，不是病毒。源码完全公开，见仓库 `agent-go/`。
+
+### 8.4 先手动跑一次（验证配置对不对）
+
+`Win + R` → 输入 `powershell` → 回车，粘贴（**改 3 处**）：
+
+```powershell
+cd "$env:USERPROFILE\familyprint"
+
+.\fp-agent.exe `
+  -cloud wss://print.example.com/ws/agent `
+  -token 把这里改成第1串随机字符 `
+  -printer ipp://192.168.1.100:631/ipp/print
+```
+
+> **反引号 `` ` `` 是 PowerShell 的换行符**，必须留在行尾。懒得换行就全写一行，去掉反引号。
+
+**看到这样的输出就是成功**：
+
+```
+[INF] FamilyPrint-Agent 启动
+[INF]   版本      v1.4.0
+[INF]   云端      [wss://print.example.com/ws/agent]
+[INF]   打印机    家里打印机（ipp://192.168.1.100:631/ipp/print）
+[INF]   端到端    未启用
+[INF] 已连接云端，等待打印任务…
+```
+
+**各参数含义**：
+
+| 参数 | 填什么 | 在哪拿 |
+|------|--------|--------|
+| `-cloud` | 你的域名 + `/ws/agent` | 你部署云端时用的域名 |
+| `-token` | 第 1 串随机字符 | 第二章生成的那串，**必须和云端一致** |
+| `-printer` | 打印机 IPP 地址 | 第二章查到的 |
+| `-key` | 家庭密钥（可选） | 开了端到端加密才需要，和网页里输的一样 |
+
+按 `Ctrl + C` 停止。**确认能连上后再做下一步**，否则装了自启也是反复重启。
+
+#### 常见报错对照
+
+| 现象 | 原因 | 解决 |
+|------|------|------|
+| `无法将".\fp-agent.exe"项识别为...` | 当前目录不对 | 先 `cd "$env:USERPROFILE\familyprint"`，或用完整路径 |
+| 窗口一闪就没了 | 双击运行的，看不到报错 | 必须在 PowerShell 里跑，才能看到错误信息 |
+| `一直被 SmartScreen 拦截` | 没解除锁定 | 回到 [8.3](#83-️-解除已阻止标记必做) |
+| 连不上云端，日志反复重连 | token 不一致 / 域名错 | 对比云端启动日志里的 `设备token` |
+| `打印机连接失败` | IP 错 / 打印机没开机 | 浏览器打开 `http://192.168.1.100` 看能不能进管理页 |
+
+### 8.5 设置开机自启（三种方式，选一种）
+
+#### 方式 A：任务计划程序（推荐，最稳）
+
+比"启动文件夹"更可靠：能设成**开机就启动**（不用等登录）、崩溃自动重启。
+
+**图形步骤**：
+
+1. `Win + R` → 输入 `taskschd.msc` → 回车
+2. 右侧点 **创建任务…**（不是"创建基本任务"）
+3. **常规**标签：
+   - 名称：`FamilyPrint 家庭打印`
+   - 勾选 **"不管用户是否登录都要运行"**
+   - 勾选 **"使用最高权限运行"**
+   - 下方选 **"Windows 10"**（Win11 也选这个）
+4. **触发器**标签 → 新建 → "开始任务"选 **启动时** → 确定
+5. **操作**标签 → 新建：
+   - 程序或脚本：`C:\Users\你的用户名\familyprint\fp-agent.exe`
+   - 添加参数：`-cloud wss://print.example.com/ws/agent -token 你的TOKEN -printer ipp://192.168.1.100:631/ipp/print`
+   - 起始于：`C:\Users\你的用户名\familyprint`
+6. **设置**标签：
+   - 勾选 **"如果任务失败，按以下频率重新启动"** → 1 分钟 / 尝试 999 次
+   - 取消勾选 **"如果计算机使用电池电源，则停止"**（笔记本必做）
+7. 确定 → 输入 Windows 登录密码
+
+**命令行一次搞定**（改完 4 处直接粘贴）：
+
+```powershell
+$exe = "$env:USERPROFILE\familyprint\fp-agent.exe"
+$arg = '-cloud wss://print.example.com/ws/agent -token 你的TOKEN -printer ipp://192.168.1.100:631/ipp/print'
+
+$action  = New-ScheduledTaskAction -Execute $exe -Argument $arg -WorkingDirectory (Split-Path $exe)
+$trigger = New-ScheduledTaskTrigger -AtStartup
+$set     = New-ScheduledTaskSettingsSet -RestartCount 999 `
+             -RestartInterval (New-TimeSpan -Minutes 1) `
+             -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+$pr      = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType S4U -RunLevel Highest
+Register-ScheduledTask -TaskName "FamilyPrint" -Action $action -Trigger $trigger `
+  -Settings $set -Principal $pr -Force
+
+# 关键一步：常驻程序不能有超时，否则跑 3 天会被强制结束。显式设为「不限时」
+$t = Get-ScheduledTask -TaskName "FamilyPrint"
+$t.Settings.ExecutionTimeLimit = "PT0S"
+Set-ScheduledTask -TaskName "FamilyPrint" -Settings $t.Settings | Out-Null
+
+# 启动并验证
+Start-ScheduledTask -TaskName "FamilyPrint"
+Start-Sleep 3
+Get-ScheduledTask -TaskName "FamilyPrint" | Select-Object TaskName, State
+(Get-ScheduledTask -TaskName "FamilyPrint").Settings.ExecutionTimeLimit   # 应显示 PT0S
+```
+
+> **`PT0S` 是什么**：Windows 任务计划程序用 ISO 8601 时长表示，`PT0S` = 0 秒 = **不限时**。程序默认上限是 3 天，不设这个第 4 天就会自动被杀掉。
+>
+> **`-LogonType S4U` 是什么**：`S4U`（Service For User）= **不用输密码**就能"以你的身份"运行，所以开机后在登录界面停着也能跑。代价是它**没有真正的密码凭据**，访问网络共享盘这类需要凭据的资源会失败——但家印只用 `wss://` 出站 + 读本地 exe，完全够用。
+> 如果你后面发现程序起不来，改 `S4U` 为 `Interactive`（改成"仅在用户登录时运行"），代价是必须先登录桌面。
+>
+> **验证运行日志**：脚本方式看不到控制台输出，用这个确认它真的在连云端：
+>
+> ```powershell
+> Get-ScheduledTaskInfo -TaskName "FamilyPrint" | Select-Object LastRunTime, LastTaskResult
+> # LastTaskResult = 267009 表示「正在运行」，正常
+> # 267011 = 尚未运行过，说明触发器没生效
+> ```
+
+#### 方式 B：启动文件夹（最简单）
+
+1. `Win + R` → 输入 `shell:startup` → 回车（打开启动文件夹）
+2. 右键 → **新建 → 快捷方式**
+3. 位置填（改成你的路径和参数）：
+
+```
+"C:\Users\你的用户名\familyprint\fp-agent.exe" -cloud wss://print.example.com/ws/agent -token 你的TOKEN -printer ipp://192.168.1.100:631/ipp/print
+```
+
+4. 名称填 `家庭打印` → 完成
+
+> 缺点：**必须登录 Windows 桌面后才会启动**。如果电脑开机后停在登录界面，它不会跑。
+> 家里电脑设了自动登录的话，这个方式完全够用。
+
+#### 方式 C：NSSM 注册成 Windows 服务（进阶）
+
+服务方式开机即跑、不依赖登录，但需要额外下载 `nssm.exe`（[官网](https://nssm.cc/download)）。
+
+```powershell
+# 把 nssm.exe 放到 familyprint 目录后，管理员 PowerShell 里执行：
+$dir = "$env:USERPROFILE\familyprint"
+& "$dir\nssm.exe" install FamilyPrintAgent "$dir\fp-agent.exe"
+& "$dir\nssm.exe" set FamilyPrintAgent AppParameters "-cloud wss://print.example.com/ws/agent -token 你的TOKEN -printer ipp://192.168.1.100:631/ipp/print"
+& "$dir\nssm.exe" set FamilyPrintAgent AppDirectory "$dir"
+& "$dir\nssm.exe" set FamilyPrintAgent AppStdout "$dir\agent.log"
+& "$dir\nssm.exe" set FamilyPrintAgent AppStderr "$dir\agent.log"
+& "$dir\nssm.exe" set FamilyPrintAgent Start SERVICE_AUTO_START
+& "$dir\nssm.exe" set FamilyPrintAgent AppExit Default Restart
+net start FamilyPrintAgent
+```
+
+### 8.6 防休眠（**笔记本尤其重要**）
+
+电脑一睡，打印机就离线，用户点了打印一直排队。两种解决：
+
+**① 关掉睡眠**（管理员 PowerShell）：
+
+```powershell
+# 插电时：永不睡眠（这是最省事、最稳的做法）
+powercfg /change standby-timeout-ac 0
+powercfg /change monitor-timeout-ac 30    # 屏幕 30 分钟黑屏（不影响程序运行）
+# 用电池时仍然允许睡眠，保护电量
+powercfg /change standby-timeout-dc 15
+```
+
+**② 笔记本合盖不休眠**：
+
+控制面板 → 电源选项 → 选择关闭盖子的功能 → **插电时：不采取任何操作**。
+
+**③ 关闭"快速启动"**（可选，减少异常）：
+
+控制面板 → 电源选项 → 选择电源按钮的功能 → 更改当前不可用的设置 → **取消勾选"启用快速启动"**。
+
+### 8.7 验证 + 防火墙
+
+1. 网页打印页顶部应显示 **打印机在线**
+2. 手机上传一张照片 → 点打印 → 家里打印机出纸
+
+**如果显示离线，检查 Windows 防火墙**（家庭端是**主动连出去**的，通常无需开端口；但个别企业安全软件会拦 exe 联网）：
+
+```powershell
+# 允许 fp-agent 联网（管理员 PowerShell）
+New-NetFirewallRule -DisplayName "FamilyPrint Agent" -Direction Outbound -Program "$env:USERPROFILE\familyprint\fp-agent.exe" -Action Allow
+```
+
+> 家庭端**不需要**开放任何入站端口。它只做 `wss://` 出站连接，所以**家里路由器不用做端口映射**。
+
+### 8.8 查看日志与升级
+
+```powershell
+# 用计划任务方式时，日志不落地。需要日志就加 -debug 并用下面的方式跑：
+cd "$env:USERPROFILE\familyprint"
+.\fp-agent.exe -cloud ... -token ... -printer ... -debug *>&1 | Tee-Object -FilePath agent.log
+```
+
+**升级**：下载新版 exe，**先停掉任务** → 覆盖文件 → 重新启动：
+
+```powershell
+Stop-ScheduledTask -TaskName "FamilyPrint"
+# 覆盖 exe 后
+Start-ScheduledTask -TaskName "FamilyPrint"
+# 或
+Unregister-ScheduledTask -TaskName "FamilyPrint" -Confirm:$false   # 彻底删除自启
+```
+
+**卸载**：
+
+```powershell
+Unregister-ScheduledTask -TaskName "FamilyPrint" -Confirm:$false
+Remove-Item -Recurse -Force "$env:USERPROFILE\familyprint"
+# 若用过 NSSM：
+# & "$env:USERPROFILE\familyprint\nssm.exe" remove FamilyPrintAgent confirm
+```
+
+### 8.9 Windows 与 Linux 版的差异（了解即可）
+
+| 项目 | Linux | Windows |
+|------|-------|---------|
+| 程序文件名 | `fp-agent` | `fp-agent.exe` |
+| 编程权限 | `chmod +x` | 需要"解除锁定" |
+| 自启方式 | systemd / procd | 任务计划程序 / 启动文件夹 / 服务 |
+| 配置文件位置 | `/etc/systemd/system/` | 任务计划程序里 |
+| 日志查看 | `journalctl -u fp-agent -f` | PowerShell 窗口 / `-debug` 重定向 |
+| 打印能力 | 完全相同 | 完全相同 |
+
+> 两端功能**完全一致**：都走 IPP 直连打印机，都不需要装驱动，都支持端到端加密、本地排队取消、60 秒死链自愈。
+
+---
+
+## 九、测试打印
 
 手机**关掉 WiFi 用流量**（模拟在外场景），完成下面清单：
 
@@ -681,7 +967,7 @@ journalctl -u fp -n 30 --no-pager   # 应看到「开始监听」
 - [ ] 改份数=2、开双面 → 出纸正确
 - [ ] 微信里打开同一个网址 → 有提示卡 → 也能正常上传打印
 
-## 九、管理员功能
+## 十、管理员功能
 
 用管理员账号登录网页，右上角会多一个「**管理**」入口，点进去就是管理后台，共 4 个页签：
 
@@ -696,7 +982,7 @@ journalctl -u fp -n 30 --no-pager   # 应看到「开始监听」
 
 > ⚠️ 首次登录默认账号 `admin / admin123`，**登录后第一件事：进「成员」→ 给 admin 改密码**。
 
-## 十、交给家人
+## 十一、交给家人
 
 给家人发一条微信，内容照抄替换即可：
 
@@ -708,7 +994,7 @@ journalctl -u fp -n 30 --no-pager   # 应看到「开始监听」
 
 🎉 **到这里部署全部完成！** 下面是进阶内容和日常维护，按需阅读。
 
-## 十一、进阶：端到端加密（推荐开启）
+## 十二、进阶：端到端加密（推荐开启）
 
 打印文件在**浏览器内加密**后才上传，云端只见密文、**服务器管理员也读不到内容**，家庭端收到后用同一密钥解密再打印。
 
@@ -727,7 +1013,7 @@ journalctl -u fp -n 30 --no-pager   # 应看到「开始监听」
 | 账号 | 密码加密存储；输错 5 次锁 10 分钟；改密码/停用后所有旧登录立即失效 |
 | 文件 | 打印完成立即删除（云端+家庭端双侧）；支持 PDF/JPG/PNG/DOCX/TXT，单个 ≤50MB，每人每天 30 个任务 |
 
-## 十二、日志怎么看
+## 十三、日志怎么看
 
 ### 在哪看
 
@@ -764,7 +1050,7 @@ journalctl -u fp -n 30 --no-pager   # 应看到「开始监听」
 - 家庭端：`-debug 1` 参数（或 compose 里 `DEBUG=1`）看探活等细节
 - Docker 日志轮转已在 compose 模板里内置（10MB × 3 个文件）；二进制方式走 journald，系统自带轮转
 
-## 十三、日常维护
+## 十四、日常维护
 
 ### 备份（建议设置每天自动）
 
@@ -805,7 +1091,7 @@ systemctl restart fp-cloud fp-agent   # 按你的实际服务名
 
 > 📦 历史版本与更新内容见 [Releases 页](https://github.com/mohan9898/familyprint/releases)。
 
-## 十四、故障排查
+## 十五、故障排查
 
 | 症状 | 最可能的原因 → 解决办法 |
 |------|------------------------|
@@ -848,9 +1134,11 @@ systemctl restart fp-cloud fp-agent   # 按你的实际服务名
 | 树莓派 4/5、ARM 盒子（N1/R2S/R4S） | `fp-agent-linux-arm64` | `fp-cloud-linux-arm64` |
 | 树莓派 3、32 位 ARM | `fp-agent-linux-arm` | `fp-cloud-linux-arm` |
 | Mac（Intel / Apple Silicon） | `fp-agent-darwin-*` | `fp-cloud-darwin-*` |
-| Windows | `fp-agent-windows-amd64.exe` | `fp-cloud-windows-amd64.exe` |
+| Windows 10/11（64 位） | `fp-agent-windows-amd64.exe` | `fp-cloud-windows-amd64.exe` |
 
 > 💡 `arm64` 就是 `aarch64`（同一种架构的两种叫法）。不确定设备架构时，在设备上执行 `uname -m`：输出 `aarch64` → 下载 `*-linux-arm64`；输出 `x86_64` → 下载 `*-linux-amd64`；输出 `armv7l` → 下载 `*-linux-arm`。
+>
+> 🪟 **Windows 用户**：只要 `fp-agent-windows-amd64.exe`（家庭端）。云端一般不装在 Windows 上。详细步骤见[方案五](#八方案五windows-家庭端图文步骤)。Windows 版功能与 Linux 完全一致（IPP 直连、无需驱动、支持端到端加密）。
 >
 > USB 打印机暂不支持（需 CUPS 桥接），当前面向 IPP 网络打印机。
 
