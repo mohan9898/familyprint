@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -98,7 +100,12 @@ type wsConn struct {
 func (w *wsConn) send(v interface{}) error {
 	w.mu <- struct{}{}
 	defer func() { <-w.mu }()
-	return w.conn.WriteJSON(v)
+	if err := w.conn.WriteJSON(v); err != nil {
+		// 状态上报失败必须留痕：否则云端任务可能停在中间态，用户看不到原因
+		logWrn("消息上报失败（连接可能已断开）: %v", err)
+		return err
+	}
+	return nil
 }
 
 type jobMsg struct {
@@ -195,12 +202,39 @@ func ippPrint(path, jobName string, p jobMsg) error {
 
 // printQueue：家用打印机是独占设备，必须串行。并发向同一台打印机发 IPP，
 // 会导致乱序、卡纸、甚至任务互相顶掉。
-var printQueue = make(chan func(), 64)
+type printTask struct {
+	jobID int
+	fn    func()
+}
+
+var printQueue = make(chan printTask, 64)
+
+// printing：当前正在执行的 IPP 打印任务数。优雅退出时等它归零，
+// 避免 systemctl restart 掐断进行中的打印（IPP 请求最长 120s）。
+var printing = int32(0)
 
 func printWorker() {
-	for task := range printQueue {
-		task()
+	for t := range printQueue {
+		t.fn()
 	}
+}
+
+// 本地取消标记：用户在网页上取消「排队中」的任务时，云端会下发 cancel 消息；
+// 任务若还在本地队列里没发给打印机，执行前检查标记即可跳过，不再出纸。
+// （已下发到打印机内部队列的部分，IPP 侧无法简单撤回，仍可能出纸。）
+var canceledMu sync.Mutex
+var canceledJobs = map[int]bool{}
+
+func markCanceled(jobID int) {
+	canceledMu.Lock()
+	canceledJobs[jobID] = true
+	canceledMu.Unlock()
+}
+
+func isCanceled(jobID int) bool {
+	canceledMu.Lock()
+	defer canceledMu.Unlock()
+	return canceledJobs[jobID]
 }
 
 func handleJob(ws *wsConn, raw []byte) {
@@ -235,13 +269,23 @@ func handleJob(ws *wsConn, raw []byte) {
 		printName, printData = name, dec
 		logInf("任务 #%d 解密成功: %s (%dKB)", msg.JobID, name, len(dec)/1024)
 	}
-	// 入队串行处理：先回 processing，避免用户在队列里看不到排队
-	ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "processing"})
+	// 入队串行处理。注意：这里不回报 processing——
+	// 任务还在本地排队时云端保持 queued，用户随时可以取消；
+	// processing 改为真正从队列取出、开始打印时才回报（见 runPrint）。
 	if waiting := len(printQueue); waiting > 0 {
 		logInf("任务 #%d 进入打印队列，前面还有 %d 个任务在等", msg.JobID, waiting)
 	}
 	select {
-	case printQueue <- func() { runPrint(ws, msg, printName, printData) }:
+	case printQueue <- printTask{jobID: msg.JobID, fn: func() {
+		if isCanceled(msg.JobID) {
+			logInf("任务 #%d 已被用户取消（取消时还在本地队列），跳过打印", msg.JobID)
+			ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "canceled"})
+			return
+		}
+		// 从队列取出、真正开始打印时才回报 processing
+		ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "processing"})
+		runPrint(ws, msg, printName, printData)
+	}}:
 	default:
 		logErr("任务 #%d 被拒: 打印队列已满（上限 %d）", msg.JobID, cap(printQueue))
 		ws.send(map[string]interface{}{"type": "status", "job_id": msg.JobID, "status": "failed",
@@ -251,6 +295,8 @@ func handleJob(ws *wsConn, raw []byte) {
 
 // runPrint 在工作协程里串行执行真正的打印
 func runPrint(ws *wsConn, msg jobMsg, printName string, printData []byte) {
+	atomic.AddInt32(&printing, 1)
+	defer atomic.AddInt32(&printing, -1)
 	start := time.Now()
 	// 文件名来自用户上传，必须净化，防止 ../ 路径穿越覆盖系统文件
 	safeName := filepath.Base(strings.ReplaceAll(printName, "\\", "/"))
@@ -384,9 +430,8 @@ func connectOnce(rawURL string, quit chan struct{}) error {
 	if err != nil {
 		return err
 	}
-	q := u.Query()
-	q.Set("token", deviceToken)
-	u.RawQuery = q.Encode()
+	// 注意：token 只放请求头，不放进 URL 查询串——
+	// URL 会原样记录在 Nginx/Caddy 等反代的访问日志里，等于把设备 token 泄漏给日志文件。
 	header := http.Header{}
 	header.Set("X-Device-Token", deviceToken)
 
@@ -400,6 +445,14 @@ func connectOnce(rawURL string, quit chan struct{}) error {
 	}
 	defer conn.Close()
 	ws := &wsConn{conn: conn, mu: make(chan struct{}, 1)}
+	// 死链检测：只发 ping 不设读超时的话，TCP 半开连接（NAT 静默丢会话）会让
+	// ReadMessage 永久挂起、重连机制失效。60 秒读超时 + pong 刷新，死链 1 分钟内必被发现。
+	const readIdle = 60 * time.Second
+	conn.SetReadDeadline(time.Now().Add(readIdle))
+	conn.SetPongHandler(func(string) error {
+		conn.SetReadDeadline(time.Now().Add(readIdle))
+		return nil
+	})
 	connectedAt := time.Now()
 	logInf("已连接云端 %s", rawURL)
 	reportPrinters(ws)
@@ -432,18 +485,24 @@ func connectOnce(rawURL string, quit chan struct{}) error {
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
 			uptime := time.Since(connectedAt).Round(time.Second)
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				return fmt.Errorf("连接读超时（%v 无任何数据/pong，疑似死链，已保持 %s）", readIdle, uptime)
+			}
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
 				return fmt.Errorf("连接异常断开（已保持 %s）: %w", uptime, err)
 			}
 			return fmt.Errorf("连接已被关闭（已保持 %s）", uptime)
 		}
+		conn.SetReadDeadline(time.Now().Add(readIdle))
 		var m jobMsg
 		json.Unmarshal(raw, &m)
 		if m.Type == "job" {
 			go handleJob(ws, raw)
 		} else if m.Type == "cancel" {
-			// 简化：家庭场景任务下发改打印后由打印机排队，取消仅对未下发任务有效（云端侧处理）
-			logInf("收到任务 #%d 取消通知（若已进打印机队列，可能仍会出纸）", m.JobID)
+			// 标记本地取消：若任务还在本地队列没发给打印机，执行时跳过（不再出纸）。
+			// 已进入打印机内部队列的任务无法撤回，只能提示用户。
+			markCanceled(m.JobID)
+			logInf("收到任务 #%d 取消通知（本地队列中的会跳过；若已进打印机队列，可能仍会出纸）", m.JobID)
 		} else {
 			logDebug("收到未识别的消息类型 %q，已忽略", m.Type)
 		}
@@ -458,6 +517,16 @@ func main() {
 		<-sig
 		logInf("收到退出信号，正在停止…")
 		close(quit)
+		// 优雅退出：最多等 120 秒让正在进行的打印请求收尾（IPP 客户端超时同为 120s），
+		// 避免 systemctl restart 把打到一半的纸掐断。队列里还没开始的任务会留在内存里不再执行。
+		deadline := time.Now().Add(120 * time.Second)
+		for atomic.LoadInt32(&printing) > 0 && time.Now().Before(deadline) {
+			logInf("有打印任务进行中，等待完成（最多再等 %d 秒）…", int(time.Until(deadline).Seconds()))
+			time.Sleep(1 * time.Second)
+		}
+		if n := atomic.LoadInt32(&printing); n > 0 {
+			logWrn("等待超时，仍有 %d 个打印任务未完成，强制退出", n)
+		}
 		os.Exit(0)
 	}()
 	// 启动横幅：排查问题时先确认"跑的是哪个版本、连的是哪、打印机地址对不对"
