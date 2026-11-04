@@ -25,7 +25,7 @@
 | [五](#五方案二docker-手动部署) | 方案二：Docker 手动部署 | 想了解细节 |
 | [六](#六方案三二进制一键部署) | **方案三：二进制一键部署** | 不想装 Docker |
 | [七](#七方案四二进制手动部署) | 方案四：二进制手动部署 | 高级用户 |
-| [八](#八方案五windows-家庭端图文步骤) | **方案五：Windows 家庭端（图文步骤）** | 家里只有 Windows 电脑 |
+| [八](#八方案五windows-家庭端小白图文版) | **方案五：Windows 家庭端（小白图文版）** | 家里只有 Windows 电脑 |
 | [九](#九测试打印) | 部署完成后测试 | 所有人 |
 | [十](#十管理员功能) | 网页管理后台 | 管理员 |
 | [十一](#十一交给家人) | 给家人发使用说明 | 所有人 |
@@ -468,7 +468,7 @@ logread -e fp-agent   # 应看到 "已连接云端"
 | 指定镜像（自动的不通时） | `MIRROR=https://gh-proxy.com/` |
 | 跳过校验（不推荐） | `NO_VERIFY=1` |
 
-> ⚠️ **装到哪里很关键**：脚本默认装到 `/usr/local/bin`，保持默认最省事。如果用 `INSTALL_DIR=/opt/xxx` 装到别处，后面写开启自启时 **ExecStart 必须写绝对路径**（如 `/opt/xxx/fp-cloud`），否则 systemd 找不到程序会报 `203/EXEC`，详见 [7.4](#74-️-自启失败的两种典型报错必看)。
+> ⚠️ **装到哪里很关键**：脚本默认装到 `/usr/local/bin`，保持默认最省事。如果用 `INSTALL_DIR=/opt/xxx` 装到别处，后面写开启自启时 **ExecStart 必须写绝对路径**（如 `/opt/xxx/fp-cloud`），否则 systemd 找不到程序会报 `203/EXEC`，详见 [7.4](#74-自启失败的两种典型报错必看)。
 
 ```bash
 # 举例：只把家庭端装到当前目录
@@ -505,7 +505,7 @@ file /usr/local/bin/fp-cloud    # 应显示 ELF 64-bit LSB executable, x86-64
 ```
 
 > 🇨🇳 上面已带加速前缀；直连就删掉 `https://ghfast.top/`。
-> 🪟 **Windows 用户请看[方案五 · Windows 家庭端](#八方案五windows-家庭端图文步骤)**，有图形界面的保姆级步骤。
+> 🪟 **Windows 用户请看[方案五 · Windows 家庭端](#八方案五windows-家庭端小白图文版)**，有图形界面的保姆级步骤。
 
 **（可选但推荐）手动校验完整性**：
 
@@ -602,7 +602,7 @@ fp-agent
 
 > ⚠️ 注意：Docker 部署时**必须**对外监听（`LISTEN=:8000`），只有二进制 + 本机反代场景才用 `127.0.0.1`。
 
-### 7.4 ⚠️ 自启失败的两种典型报错（必看）
+### 7.4 自启失败的两种典型报错（必看）
 
 自己写 systemd/自启配置时，`status=203/EXEC` 是最常见的失败，日志长这样：
 
@@ -673,288 +673,219 @@ journalctl -u fp -n 30 --no-pager   # 应看到「开始监听」
 
 ---
 
-## 八、方案五：Windows 家庭端（图文步骤）
+## 八、方案五：Windows 家庭端（小白图文版）
 
-> **什么时候用**：家里只有一台 Windows 电脑当"打印服务器"，不想折腾 NAS / 树莓派。
-> **前提**：这台电脑要**经常开着**（打印机才能随时响应）。笔记本合盖休眠会导致离线。
-> **不需要**：不需要装 Docker、不需要装 Python / Java、不需要装任何打印机驱动。
+> **什么时候用**：家里有一台 Windows 电脑（Win10/11，64 位）当"打印服务器"。
+> **全程 5 步，约 15 分钟**。不需要装 Docker、Python、Java，**也不需要装任何打印机驱动**。
+> **唯一要求**：这台电脑平时要开着（关机/休眠 = 打印机离线，任务会排队等你开机）。
 
-### 8.1 先确认三件事
+### 🗺️ 全程路线图（先看这个，心里有数）
 
-打开「设置 → 系统 → 系统信息」，确认：
+| 步骤 | 做什么 | 大约耗时 | 做完的标志 |
+|------|--------|---------|-----------|
+| 第 1 步 | 确认电脑和打印机条件 | 2 分钟 | 三项都 ✓ |
+| 第 2 步 | 下载程序放进一个文件夹 | 3 分钟 | 文件夹里能看到 fp-agent.exe |
+| 第 3 步 | 用记事本做一个「启动器」 | 5 分钟 | 双击 start.bat 能看到滚动日志 |
+| 第 4 步 | 让它开机自动运行 | 3 分钟 | 重启电脑后日志窗口自己弹出来 |
+| 第 5 步 | 手机打印一张测试 | 2 分钟 | 打印机出纸 🎉 |
 
-| 项目 | 要求 | 不符怎么办 |
-|------|------|-----------|
-| 系统类型 | 64 位（x64） | 32 位不支持，请换设备 |
-| Windows 版本 | Windows 10 或 11 | Win7/8 未测试，建议升级 |
+> 前提：你已经按前面章节**部署好了云端**（有网址、有第 1 串随机字符 TOKEN），并**查到了打印机的 IPP 地址**（形如 `ipp://192.168.1.100:631/ipp/print`，查法见[第二章](#二开始前的准备)）。下面会用到这两个东西。
 
-> Windows on ARM（部分 Surface）**不支持**，请用 Linux 设备。
+---
 
-然后确认你的打印机有 **IPP 地址**，形如 `ipp://192.168.1.100:631/ipp/print`。
-查法见[第二章 · 找到打印机的 IPP 地址](#-找到打印机的-ipp-地址家庭端要用)。
+### 第 1 步：确认三件事（2 分钟）
 
-### 8.2 下载 fp-agent
+**① 电脑是 64 位 Win10/11 吗？**
 
-**方式一（浏览器，推荐给新手）**
+按键盘上的 `Win` 键（Windows 徽标键）+ `Pause` 键（有的笔记本要按 `Fn+Pause`），弹出的页面看「系统类型」：
 
-1. 打开 [Releases 页](https://github.com/mohan9898/familyprint/releases)
-2. 找到最新版本（如 `v1.4.0`），点开 **Assets**
-3. 下载 **`fp-agent-windows-amd64.exe`**（约 5.5MB）
+- 显示 `64 位操作系统, 基于 x64 的处理器` → ✓ 通过
+- 显示 `32 位` 或 `ARM` → 这台电脑用不了，换一台
 
-> 下载慢？把链接前面加上 `https://ghfast.top/` 再访问。
+> 找不到 Pause 键？换个方法：点屏幕左下角「开始」→ 齿轮图标「设置」→「系统」→ 最下面「系统信息」。
 
-**方式二（命令行）**
+**② 电脑和打印机在同一个 WiFi/路由器下吗？**
 
-按 `Win + R`，输入 `powershell` 回车，粘贴：
+在电脑浏览器里输入打印机的 IP（比如 `http://192.168.1.100`），**能打开一个页面**（哪怕是打印机设置页）→ ✓ 通过。打不开说明不在一个网络，先解决这个。
 
-```powershell
-# 建个固定目录，避免文件散落在下载文件夹
-$dir = "$env:USERPROFILE\familyprint"
-New-Item -ItemType Directory -Force -Path $dir | Out-Null
+**③ 你手里有这两样东西吗？**（部署云端时准备的，记在记事本里）
 
-# 下载（带加速前缀，直连就删掉 https://ghfast.top/）
-Invoke-WebRequest `
-  -Uri "https://ghfast.top/https://github.com/mohan9898/familyprint/releases/latest/download/fp-agent-windows-amd64.exe" `
-  -OutFile "$dir\fp-agent.exe"
+- 云端地址，形如 `wss://print.example.com/ws/agent`
+- 第 1 串随机字符（设备 TOKEN）
+- 打印机 IPP 地址，形如 `ipp://192.168.1.100:631/ipp/print`
 
-# 确认下载成功：应输出文件大小（约 5.5MB）
-Get-Item "$dir\fp-agent.exe" | Select-Object Name, Length
+**✅ 检查点**：三项都 ✓ → 进第 2 步。缺东西 → 先回第二章补齐。
+
+---
+
+### 第 2 步：下载程序，放进一个文件夹（3 分钟）
+
+**为什么要专门建个文件夹**：程序要一直住在这台电脑上，散在"下载"文件夹里容易被清理掉。我们统一放 `C:\Users\你的用户名\familyprint`，下面教你怎么建。
+
+**① 建文件夹**：
+
+1. 双击桌面上的「此电脑」→ 双击 C 盘 → 双击「用户」→ 双击你的用户名文件夹
+2. 在空白处**右键 → 新建 → 文件夹**，命名为 `familyprint`（英文小写）
+
+**② 下载程序**：
+
+1. 打开下载页：[github.com/mohan9898/familyprint/releases](https://github.com/mohan9898/familyprint/releases)
+2. 在最新版本下点 **Assets**（资源列表）展开
+3. 点 **`fp-agent-windows-amd64.exe`** 下载（约 5.5MB，很小）
+
+> 下载很慢或失败？把下载按钮的链接**复制**出来，在前面加上 `https://ghfast.top/` 再粘到浏览器地址栏访问。例：
+> `https://ghfast.top/https://github.com/mohan9898/familyprint/releases/download/v1.4.1/fp-agent-windows-amd64.exe`
+
+**③ 把下载好的文件**从「下载」文件夹**剪切/复制**进刚建的 `familyprint` 文件夹。
+
+**✅ 检查点**：打开 `familyprint` 文件夹，能看到 `fp-agent-windows-amd64.exe`（有的电脑显示为 `fp-agent-windows-amd64`，带齿轮图标）。
+
+---
+
+### 第 3 步：做一个「启动器」，双击就能跑（5 分钟）
+
+> **为什么要做启动器**：程序需要带 3 个参数才能跑，每次手敲容易错。做成一个 `start.bat` 文件，以后**双击它**就能启动，第 4 步的开机自启也用它。
+
+**① 把程序改成好记的名字**（可选但推荐）：
+
+在 `familyprint` 文件夹里，右键 `fp-agent-windows-amd64.exe` → 重命名 → 改成 `fp-agent.exe`。
+
+**② 解除 Windows 的"隔离"标记**（必做，否则可能被拦截）：
+
+右键 `fp-agent.exe` → **属性** → 看窗口最底部，如果有「**安全：此文件来自其他计算机…**」字样 → 勾选旁边的 **「解除锁定」** → **确定**。
+
+> 如果属性窗口里根本没有「解除锁定」这一项，说明没被标记，直接跳过。
+> 之后如果双击弹出蓝色警告「Windows 已保护你的电脑」：点 **更多信息** → **仍要运行**。（程序没买付费签名证书，不是病毒，源码全公开）
+
+**③ 用记事本做启动器**：
+
+1. 在 `familyprint` 文件夹空白处 **右键 → 新建 → 文本文档**
+2. 打开这个新建文本文档（会用记事本打开），**原样粘贴**下面的内容：
+
+```bat
+@echo off
+title FamilyPrint 家庭打印
+echo ============================================
+echo   家庭打印服务启动中... 最小化窗口即可
+echo   关闭此窗口 = 停止打印服务
+echo ============================================
+
+"%USERPROFILE%\familyprint\fp-agent.exe" -cloud 在这里填云端地址 -token 在这里填TOKEN -printer 在这里填打印机IPP地址
+
+echo.
+echo 程序已退出。如果上方有红色或英文错误信息，拍照发给帮你部署的人。
+pause
 ```
 
-### 8.3 ⚠️ 解除"已阻止"标记（必做）
+3. **只改引号外的那 3 处**（其余一个字都不要动）：
 
-Windows 从网上下载的 exe 会带"来自网络"标记，直接双击会被 SmartScreen 拦下，或运行时静默失败。
+| 要改的位置 | 改成 | 举例 |
+|-----------|------|------|
+| `在这里填云端地址` | 你的云端地址 | `wss://print.example.com/ws/agent` |
+| `在这里填TOKEN` | 第 1 串随机字符 | `aB3xK9mP2qR7sT4u` |
+| `在这里填打印机IPP地址` | 第 1 步查到的 | `ipp://192.168.1.100:631/ipp/print` |
 
-**图形方式**：右键 `fp-agent.exe` → **属性** → 底部勾选 **"解除锁定"** → 确定。
+> 💡 三处都是英文引号**外面**的词，直接删掉中文换成你的值。**引号、空格、减号都不要动**。
 
-**命令行方式**（等价）：
+4. 记事本菜单 **文件 → 另存为**：
+   - 保存位置：就选 `familyprint` 文件夹
+   - 文件名输入：**`start.bat`**（⚠️ 必须带 `.bat`，不是 txt）
+   - 保存类型选：**所有文件 (*.*)** ← 这一步不能漏，否则会存成 start.bat.txt
+   - 编码用默认（ANSI）就行，点**保存**
+5. 把桌面上那个空的「新建文本文档」删掉。
 
-```powershell
-Unblock-File "$env:USERPROFILE\familyprint\fp-agent.exe"
-```
+**④ 双击 `start.bat` 试运行！**
 
-> 若双击时仍弹「Windows 已保护你的电脑」：点 **更多信息** → **仍要运行**。
-> 这是因为程序没有花钱买代码签名证书，不是病毒。源码完全公开，见仓库 `agent-go/`。
-
-### 8.4 先手动跑一次（验证配置对不对）
-
-`Win + R` → 输入 `powershell` → 回车，粘贴（**改 3 处**）：
-
-```powershell
-cd "$env:USERPROFILE\familyprint"
-
-.\fp-agent.exe `
-  -cloud wss://print.example.com/ws/agent `
-  -token 把这里改成第1串随机字符 `
-  -printer ipp://192.168.1.100:631/ipp/print
-```
-
-> **反引号 `` ` `` 是 PowerShell 的换行符**，必须留在行尾。懒得换行就全写一行，去掉反引号。
-
-**看到这样的输出就是成功**：
+**看到这样的黑窗口就是成功**（它要一直开着，**最小化**即可，别关）：
 
 ```
 [INF] FamilyPrint-Agent 启动
-[INF]   版本      v1.4.0
+[INF]   版本      v1.4.1
 [INF]   云端      [wss://print.example.com/ws/agent]
 [INF]   打印机    家里打印机（ipp://192.168.1.100:631/ipp/print）
-[INF]   端到端    未启用
 [INF] 已连接云端，等待打印任务…
 ```
 
-**各参数含义**：
+**✅ 检查点**：日志里出现「**已连接云端**」。此时打开网页打印页，顶部应显示**打印机在线**（打印机开着的话）。
 
-| 参数 | 填什么 | 在哪拿 |
-|------|--------|--------|
-| `-cloud` | 你的域名 + `/ws/agent` | 你部署云端时用的域名 |
-| `-token` | 第 1 串随机字符 | 第二章生成的那串，**必须和云端一致** |
-| `-printer` | 打印机 IPP 地址 | 第二章查到的 |
-| `-key` | 家庭密钥（可选） | 开了端到端加密才需要，和网页里输的一样 |
-
-按 `Ctrl + C` 停止。**确认能连上后再做下一步**，否则装了自启也是反复重启。
-
-#### 常见报错对照
+**卡住了？对照下表**：
 
 | 现象 | 原因 | 解决 |
 |------|------|------|
-| `无法将".\fp-agent.exe"项识别为...` | 当前目录不对 | 先 `cd "$env:USERPROFILE\familyprint"`，或用完整路径 |
-| 窗口一闪就没了 | 双击运行的，看不到报错 | 必须在 PowerShell 里跑，才能看到错误信息 |
-| `一直被 SmartScreen 拦截` | 没解除锁定 | 回到 [8.3](#83-️-解除已阻止标记必做) |
-| 连不上云端，日志反复重连 | token 不一致 / 域名错 | 对比云端启动日志里的 `设备token` |
-| `打印机连接失败` | IP 错 / 打印机没开机 | 浏览器打开 `http://192.168.1.100` 看能不能进管理页 |
+| 双击后窗口一闪就没 | start.bat 存成了 start.bat.txt | 看文件后缀；重做第 3 步第 4 小步（保存类型选"所有文件"） |
+| 记事本里的中文全变成乱码 | 编码问题 | 确认粘贴的内容和你改的 3 处之外没动过任何字；重存一次 |
+| 窗口报 `'...不是内部或外部命令'` | exe 的路径不对 | 检查文件名是不是 `fp-agent.exe`（第 1 小步改过名）、文件夹名是不是 `familyprint` |
+| 日志一直「重连中」或「连接失败」 | TOKEN 两边不一致 / 域名错 | 核对云端日志里的「设备token」；地址必须是 `wss://` 开头且带 `/ws/agent` |
+| 日志说「打印机连接失败」 | 打印机没开 / IP 变了 | 确认打印机开机；浏览器访问 `http://192.168.1.100` 测试 |
+| 蓝色警告「Windows 已保护你的电脑」 | 未解除锁定 / 首次运行 | 点「更多信息」→「仍要运行」；或回第 2 小步做解除锁定 |
 
-### 8.5 设置开机自启（三种方式，选一种）
+> 💡 **顺手一提**：`-key 家庭密钥` 是端到端加密用的可选参数，普通使用不用加。想开启见[第十二章](#十二进阶端到端加密推荐开启)。
 
-#### 方式 A：任务计划程序（推荐，最稳）
+---
 
-比"启动文件夹"更可靠：能设成**开机就启动**（不用等登录）、崩溃自动重启。
+### 第 4 步：开机自动运行（3 分钟）
 
-**图形步骤**：
+现在每次开机都要手动双击 start.bat。让它自动跑：
 
-1. `Win + R` → 输入 `taskschd.msc` → 回车
-2. 右侧点 **创建任务…**（不是"创建基本任务"）
-3. **常规**标签：
-   - 名称：`FamilyPrint 家庭打印`
-   - 勾选 **"不管用户是否登录都要运行"**
-   - 勾选 **"使用最高权限运行"**
-   - 下方选 **"Windows 10"**（Win11 也选这个）
-4. **触发器**标签 → 新建 → "开始任务"选 **启动时** → 确定
-5. **操作**标签 → 新建：
-   - 程序或脚本：`C:\Users\你的用户名\familyprint\fp-agent.exe`
-   - 添加参数：`-cloud wss://print.example.com/ws/agent -token 你的TOKEN -printer ipp://192.168.1.100:631/ipp/print`
-   - 起始于：`C:\Users\你的用户名\familyprint`
-6. **设置**标签：
-   - 勾选 **"如果任务失败，按以下频率重新启动"** → 1 分钟 / 尝试 999 次
-   - 取消勾选 **"如果计算机使用电池电源，则停止"**（笔记本必做）
-7. 确定 → 输入 Windows 登录密码
+1. 按键盘 `Win` 键 + `R` 键（先按住 Win 再按 R），左下角弹出小窗口
+2. 输入：`shell:startup`（就这 13 个字符，区分大小写无所谓）→ 按回车
+   - 会打开一个文件夹，这就是「开机自启」文件夹
+3. **把 `familyprint` 文件夹里的 `start.bat` 右键 → 复制**，再到这个自启文件夹里 **右键 → 粘贴快捷方式**
+   - ⚠️ 是「粘贴快捷方式」，不是直接粘贴文件！（右键菜单里选「粘贴快捷方式」；如果只有「粘贴」，说明你复制的是文件夹而不是文件，回 familyprint 文件夹重新右键 start.bat → 复制）
+4. 粘贴出来的「start.bat - 快捷方式」就留在那里，不用改名
 
-**命令行一次搞定**（改完 4 处直接粘贴）：
+**✅ 检查点**：重启电脑（开始 → 电源 → 重启），登录桌面后**会自动弹出黑色日志窗口**、显示「已连接云端」→ ✓ 完成。以后每次开机它都会自己启动，窗口最小化放着就行。
 
-```powershell
-$exe = "$env:USERPROFILE\familyprint\fp-agent.exe"
-$arg = '-cloud wss://print.example.com/ws/agent -token 你的TOKEN -printer ipp://192.168.1.100:631/ipp/print'
-
-$action  = New-ScheduledTaskAction -Execute $exe -Argument $arg -WorkingDirectory (Split-Path $exe)
-$trigger = New-ScheduledTaskTrigger -AtStartup
-$set     = New-ScheduledTaskSettingsSet -RestartCount 999 `
-             -RestartInterval (New-TimeSpan -Minutes 1) `
-             -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
-$pr      = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType S4U -RunLevel Highest
-Register-ScheduledTask -TaskName "FamilyPrint" -Action $action -Trigger $trigger `
-  -Settings $set -Principal $pr -Force
-
-# 关键一步：常驻程序不能有超时，否则跑 3 天会被强制结束。显式设为「不限时」
-$t = Get-ScheduledTask -TaskName "FamilyPrint"
-$t.Settings.ExecutionTimeLimit = "PT0S"
-Set-ScheduledTask -TaskName "FamilyPrint" -Settings $t.Settings | Out-Null
-
-# 启动并验证
-Start-ScheduledTask -TaskName "FamilyPrint"
-Start-Sleep 3
-Get-ScheduledTask -TaskName "FamilyPrint" | Select-Object TaskName, State
-(Get-ScheduledTask -TaskName "FamilyPrint").Settings.ExecutionTimeLimit   # 应显示 PT0S
-```
-
-> **`PT0S` 是什么**：Windows 任务计划程序用 ISO 8601 时长表示，`PT0S` = 0 秒 = **不限时**。程序默认上限是 3 天，不设这个第 4 天就会自动被杀掉。
+> 📝 **这个方式的原理与边界**：「自启文件夹」里的东西在**登录桌面后**自动运行。家用电脑开机即进桌面，完全够用。如果这台电脑设了多账户/开机停在登录界面不进去，改用下面的进阶方式。
 >
-> **`-LogonType S4U` 是什么**：`S4U`（Service For User）= **不用输密码**就能"以你的身份"运行，所以开机后在登录界面停着也能跑。代价是它**没有真正的密码凭据**，访问网络共享盘这类需要凭据的资源会失败——但家印只用 `wss://` 出站 + 读本地 exe，完全够用。
-> 如果你后面发现程序起不来，改 `S4U` 为 `Interactive`（改成"仅在用户登录时运行"），代价是必须先登录桌面。
->
-> **验证运行日志**：脚本方式看不到控制台输出，用这个确认它真的在连云端：
+> 🔧 **进阶（可选，一般用不到）**：要求"不登录桌面也要跑"、"崩溃自动重启"，用任务计划程序（`Win+R` → `taskschd.msc` → 创建任务；触发器选"启动时"，操作指向 start.bat，设置里勾"不管用户是否登录都要运行"+"如果任务失败每 1 分钟重启 999 次"，并把执行时限改为"不限时"——默认只让跑 3 天，常驻程序会被掐）。图形界面点点即可，不需要命令行。
+
+---
+
+### 第 5 步：测试打印（2 分钟）
+
+1. 确认打印机能开机、有纸
+2. 手机（用流量，别连家里 WiFi）打开你的打印网址 → 登录
+3. 顶部状态条显示「**在线，可立即打印**」
+4. 选一张照片 → 点「开始打印」→ 打印机出纸 🎉
+
+**✅ 全部完成**。把网址和账号发给家人就能用了（话术见[第十一章](#十一交给家人)）。
+
+### 日常注意三件事
+
+| 事情 | 说明 |
+|------|------|
+| 那个黑色窗口 | 是打印服务的"仪表盘"，**最小化别关闭**；关闭 = 停止服务 |
+| 电脑别关机/休眠 | 睡了打印机就离线，手机上会显示离线（任务会排队，开机后自动打印）|
+| 升级新版本 | 下载新 exe → 先关掉黑色窗口 → 用新文件覆盖旧的 → 重新双击 start.bat |
+
+### 💻 笔记本额外设置（台式机跳过）
+
+笔记本合盖或省电休眠会让打印机离线，做一次这个设置一劳永逸：
+
+1. `Win+R` → 输入 `control powercfg.cpl,,3` → 回车（直接打开电源高级设置）
+2. 找到「睡眠」→「在此时间后睡眠」→「使用电池」和「接通电源」都改成 **从不**
+3. 再打开「电源选项」主页 → 左侧「选择关闭盖子的功能」→「接通电源」时选 **不采取任何操作**
+
+> 图形界面找不到就跑一次命令：右键开始菜单 → 「终端(管理员)」或「Windows PowerShell(管理员)」→ 粘贴：
 >
 > ```powershell
-> Get-ScheduledTaskInfo -TaskName "FamilyPrint" | Select-Object LastRunTime, LastTaskResult
-> # LastTaskResult = 267009 表示「正在运行」，正常
-> # 267011 = 尚未运行过，说明触发器没生效
+> powercfg /change standby-timeout-ac 0
+> powercfg /change standby-timeout-dc 0
 > ```
+>
+> （含义：插电和用电池都永不睡眠。台式机只需第一条。）
 
-#### 方式 B：启动文件夹（最简单）
-
-1. `Win + R` → 输入 `shell:startup` → 回车（打开启动文件夹）
-2. 右键 → **新建 → 快捷方式**
-3. 位置填（改成你的路径和参数）：
-
-```
-"C:\Users\你的用户名\familyprint\fp-agent.exe" -cloud wss://print.example.com/ws/agent -token 你的TOKEN -printer ipp://192.168.1.100:631/ipp/print
-```
-
-4. 名称填 `家庭打印` → 完成
-
-> 缺点：**必须登录 Windows 桌面后才会启动**。如果电脑开机后停在登录界面，它不会跑。
-> 家里电脑设了自动登录的话，这个方式完全够用。
-
-#### 方式 C：NSSM 注册成 Windows 服务（进阶）
-
-服务方式开机即跑、不依赖登录，但需要额外下载 `nssm.exe`（[官网](https://nssm.cc/download)）。
-
-```powershell
-# 把 nssm.exe 放到 familyprint 目录后，管理员 PowerShell 里执行：
-$dir = "$env:USERPROFILE\familyprint"
-& "$dir\nssm.exe" install FamilyPrintAgent "$dir\fp-agent.exe"
-& "$dir\nssm.exe" set FamilyPrintAgent AppParameters "-cloud wss://print.example.com/ws/agent -token 你的TOKEN -printer ipp://192.168.1.100:631/ipp/print"
-& "$dir\nssm.exe" set FamilyPrintAgent AppDirectory "$dir"
-& "$dir\nssm.exe" set FamilyPrintAgent AppStdout "$dir\agent.log"
-& "$dir\nssm.exe" set FamilyPrintAgent AppStderr "$dir\agent.log"
-& "$dir\nssm.exe" set FamilyPrintAgent Start SERVICE_AUTO_START
-& "$dir\nssm.exe" set FamilyPrintAgent AppExit Default Restart
-net start FamilyPrintAgent
-```
-
-### 8.6 防休眠（**笔记本尤其重要**）
-
-电脑一睡，打印机就离线，用户点了打印一直排队。两种解决：
-
-**① 关掉睡眠**（管理员 PowerShell）：
-
-```powershell
-# 插电时：永不睡眠（这是最省事、最稳的做法）
-powercfg /change standby-timeout-ac 0
-powercfg /change monitor-timeout-ac 30    # 屏幕 30 分钟黑屏（不影响程序运行）
-# 用电池时仍然允许睡眠，保护电量
-powercfg /change standby-timeout-dc 15
-```
-
-**② 笔记本合盖不休眠**：
-
-控制面板 → 电源选项 → 选择关闭盖子的功能 → **插电时：不采取任何操作**。
-
-**③ 关闭"快速启动"**（可选，减少异常）：
-
-控制面板 → 电源选项 → 选择电源按钮的功能 → 更改当前不可用的设置 → **取消勾选"启用快速启动"**。
-
-### 8.7 验证 + 防火墙
-
-1. 网页打印页顶部应显示 **打印机在线**
-2. 手机上传一张照片 → 点打印 → 家里打印机出纸
-
-**如果显示离线，检查 Windows 防火墙**（家庭端是**主动连出去**的，通常无需开端口；但个别企业安全软件会拦 exe 联网）：
-
-```powershell
-# 允许 fp-agent 联网（管理员 PowerShell）
-New-NetFirewallRule -DisplayName "FamilyPrint Agent" -Direction Outbound -Program "$env:USERPROFILE\familyprint\fp-agent.exe" -Action Allow
-```
-
-> 家庭端**不需要**开放任何入站端口。它只做 `wss://` 出站连接，所以**家里路由器不用做端口映射**。
-
-### 8.8 查看日志与升级
-
-```powershell
-# 用计划任务方式时，日志不落地。需要日志就加 -debug 并用下面的方式跑：
-cd "$env:USERPROFILE\familyprint"
-.\fp-agent.exe -cloud ... -token ... -printer ... -debug *>&1 | Tee-Object -FilePath agent.log
-```
-
-**升级**：下载新版 exe，**先停掉任务** → 覆盖文件 → 重新启动：
-
-```powershell
-Stop-ScheduledTask -TaskName "FamilyPrint"
-# 覆盖 exe 后
-Start-ScheduledTask -TaskName "FamilyPrint"
-# 或
-Unregister-ScheduledTask -TaskName "FamilyPrint" -Confirm:$false   # 彻底删除自启
-```
-
-**卸载**：
-
-```powershell
-Unregister-ScheduledTask -TaskName "FamilyPrint" -Confirm:$false
-Remove-Item -Recurse -Force "$env:USERPROFILE\familyprint"
-# 若用过 NSSM：
-# & "$env:USERPROFILE\familyprint\nssm.exe" remove FamilyPrintAgent confirm
-```
-
-### 8.9 Windows 与 Linux 版的差异（了解即可）
+### Windows 与 Linux 版的差异（了解即可）
 
 | 项目 | Linux | Windows |
 |------|-------|---------|
 | 程序文件名 | `fp-agent` | `fp-agent.exe` |
-| 编程权限 | `chmod +x` | 需要"解除锁定" |
-| 自启方式 | systemd / procd | 任务计划程序 / 启动文件夹 / 服务 |
-| 配置文件位置 | `/etc/systemd/system/` | 任务计划程序里 |
-| 日志查看 | `journalctl -u fp-agent -f` | PowerShell 窗口 / `-debug` 重定向 |
+| 自启方式 | systemd / procd 配置文件 | 自启文件夹放 start.bat 快捷方式 |
+| 日志查看 | `journalctl -u fp-agent -f` | 黑色窗口（start.bat 本身） |
 | 打印能力 | 完全相同 | 完全相同 |
 
-> 两端功能**完全一致**：都走 IPP 直连打印机，都不需要装驱动，都支持端到端加密、本地排队取消、60 秒死链自愈。
+> 两端功能**完全一致**：IPP 直连打印机、无需驱动、支持端到端加密、任务可取消、断线自愈。
 
 ---
 
@@ -1103,7 +1034,7 @@ systemctl restart fp-cloud fp-agent   # 按你的实际服务名
 | 「不支持的文件类型」 | 支持 PDF/JPG/PNG/DOCX/TXT；老 .doc 先转成 .docx 或 PDF |
 | 过段时间又要登录 | 正常（默认 30 天），重登一次即可 |
 | 下载二进制很慢/失败 | 加速前缀换成 `https://gh-proxy.com/`；或用一键脚本的 `MIRROR=` 参数 |
-| 服务启动报 `status=203/EXEC` | 见 [7.4 自启失败两种典型报错](#74-️-自启失败的两种典型报错必看)：`No such file` = 路径错（ExecStart 写绝对路径、核对文件名）；`Permission denied` = 缺执行权限（`chmod +x` 或 `install -m 755`） |
+| 服务启动报 `status=203/EXEC` | 见 [7.4 自启失败两种典型报错](#74-自启失败的两种典型报错必看)：`No such file` = 路径错（ExecStart 写绝对路径、核对文件名）；`Permission denied` = 缺执行权限（`chmod +x` 或 `install -m 755`） |
 | 改了 unit 文件没反应 | 改完必须 `systemctl daemon-reload`；反复启动失败后还要 `systemctl reset-failed 服务名` |
 | 日志显示 `restart counter is at 180` 之类 | 服务已反复失败几百次，先 `systemctl stop fp && systemctl reset-failed fp` 再修 |
 | 打印失败不知道哪一步出的问题 | 云端日志按「请求 ID」串起一次操作的全部日志；家庭端日志有「收到→排队→开始→完成/失败」每一步和耗时 |
@@ -1138,7 +1069,7 @@ systemctl restart fp-cloud fp-agent   # 按你的实际服务名
 
 > 💡 `arm64` 就是 `aarch64`（同一种架构的两种叫法）。不确定设备架构时，在设备上执行 `uname -m`：输出 `aarch64` → 下载 `*-linux-arm64`；输出 `x86_64` → 下载 `*-linux-amd64`；输出 `armv7l` → 下载 `*-linux-arm`。
 >
-> 🪟 **Windows 用户**：只要 `fp-agent-windows-amd64.exe`（家庭端）。云端一般不装在 Windows 上。详细步骤见[方案五](#八方案五windows-家庭端图文步骤)。Windows 版功能与 Linux 完全一致（IPP 直连、无需驱动、支持端到端加密）。
+> 🪟 **Windows 用户**：只要 `fp-agent-windows-amd64.exe`（家庭端）。云端一般不装在 Windows 上。详细步骤见[方案五](#八方案五windows-家庭端小白图文版)。Windows 版功能与 Linux 完全一致（IPP 直连、无需驱动、支持端到端加密）。
 >
 > USB 打印机暂不支持（需 CUPS 桥接），当前面向 IPP 网络打印机。
 
