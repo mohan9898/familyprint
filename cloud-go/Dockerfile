@@ -6,7 +6,9 @@ RUN go mod download
 # 拷贝全部 .go 源文件（新增源文件无需再改这里，避免漏拷导致 undefined 编译错误）
 COPY *.go ./
 COPY static ./static
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /fp-cloud .
+# 版本号由 CI 通过 --build-arg 传入，让容器内启动横幅显示真实版本而不是 dev
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.buildVersion=${VERSION}" -o /fp-cloud .
 
 FROM scratch
 COPY --from=build /fp-cloud /fp-cloud

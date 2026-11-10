@@ -5,7 +5,9 @@ COPY go.mod go.sum ./
 RUN go mod download
 # 拷贝全部 .go 源文件（便于后续拆分源文件时不会漏拷）
 COPY *.go ./
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /fp-agent .
+# 版本号由 CI 通过 --build-arg 传入，让容器内启动横幅显示真实版本而不是 dev
+ARG VERSION=dev
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.buildVersion=${VERSION}" -o /fp-agent .
 
 FROM scratch
 COPY --from=build /fp-agent /fp-agent
