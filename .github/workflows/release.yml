@@ -59,8 +59,9 @@ jobs:
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           # 把 metadata 算出的版本（如 1.4.1）注入二进制，容器内横幅不再显示 dev
+          # 加 v 前缀与二进制产物（build-all.sh 用 git tag 名）保持一致
           build-args: |
-            VERSION=${{ steps.meta.outputs.version }}
+            VERSION=v${{ steps.meta.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
